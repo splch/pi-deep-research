@@ -2,16 +2,21 @@
 # url-check.sh - verify every URL in a markdown file resolves.
 #
 # Extracts http(s) URLs, runs HEAD (then GET fallback) against each, prints
-# OK / DEAD lines with line numbers. With --fix, attempts to rewrite each
-# DEAD URL to its closest archive.org Wayback snapshot in place.
+# OK / BLOCKED / DEAD lines with line numbers. With --fix, attempts to
+# rewrite each DEAD URL to its closest archive.org Wayback snapshot in
+# place. BLOCKED URLs (403/429) are *not* auto-fixed: they are likely
+# anti-bot responses to curl, and may render fine in a real browser.
+#
+# URLs inside Markdown code spans (`...`) and fenced code blocks (```)
+# are skipped — those are not citations.
 #
 # Usage:
 #   url-check.sh <markdown-file>
 #   url-check.sh <markdown-file> --fix
 #
 # Exit codes:
-#   0 - no dead URLs (or all dead URLs were fixed)
-#   1 - one or more dead URLs remain
+#   0 - no dead/blocked URLs (or all dead URLs were fixed)
+#   1 - one or more dead or blocked URLs remain
 #   64 - usage error
 
 set -euo pipefail
@@ -31,10 +36,16 @@ fi
 
 ua="Mozilla/5.0 (compatible; pi-deep-research/0.1)"
 
-# Extract URLs with their first-seen line number.
+# Extract URLs with their first-seen line number, skipping fenced code
+# blocks and inline code spans (those are illustrative, not citations).
 urls=$(awk '
+  BEGIN { in_block = 0 }
+  /^[[:space:]]*```/ { in_block = 1 - in_block; next }
+  in_block { next }
   {
     s = $0
+    # Strip inline code spans before scanning (they may contain example URLs).
+    gsub(/`[^`]*`/, "", s)
     while (match(s, /https?:\/\/[^[:space:])"<>\]]+/)) {
       u = substr(s, RSTART, RLENGTH)
       gsub(/[.,;:!?\)\]]+$/, "", u)
@@ -53,6 +64,7 @@ if [[ -z "$urls" ]]; then
 fi
 
 dead_count=0
+blocked_count=0
 fixed_count=0
 
 while IFS=$'\t' read -r line url; do
@@ -67,6 +79,12 @@ while IFS=$'\t' read -r line url; do
 
   if [[ "$code" =~ ^(2..|3..)$ ]]; then
     printf 'OK\tline=%s\thttp=%s\t%s\n' "$line" "$code" "$url"
+    continue
+  fi
+
+  if [[ "$code" == "403" || "$code" == "429" ]]; then
+    printf 'BLOCKED\tline=%s\thttp=%s\t%s\n' "$line" "$code" "$url"
+    blocked_count=$((blocked_count + 1))
     continue
   fi
 
@@ -96,17 +114,17 @@ while IFS=$'\t' read -r line url; do
   fixed_count=$((fixed_count + 1))
 done <<< "$urls"
 
-remaining=$((dead_count - fixed_count))
+remaining=$((dead_count - fixed_count + blocked_count))
 
 echo ""
-if [[ $dead_count -eq 0 ]]; then
+if [[ $dead_count -eq 0 && $blocked_count -eq 0 ]]; then
   echo "all URLs resolved"
   exit 0
 fi
 
-echo "summary: ${dead_count} dead, ${fixed_count} fixed via Wayback, ${remaining} unresolved" >&2
+echo "summary: ${dead_count} dead, ${blocked_count} blocked, ${fixed_count} fixed via Wayback, ${remaining} unresolved" >&2
 if [[ $remaining -gt 0 ]]; then
-  if [[ "$fix" != "--fix" ]]; then
+  if [[ "$fix" != "--fix" && $((dead_count - fixed_count)) -gt 0 ]]; then
     echo "rerun with --fix to attempt Wayback Machine rewrites" >&2
   fi
   exit 1
