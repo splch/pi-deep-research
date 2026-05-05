@@ -33,6 +33,13 @@ The agent will:
 All artifacts land in `./research/<slug>/` so a session can be resumed,
 inspected, or shared.
 
+## Example output
+
+See [`examples/`](./examples/) for a real captured run — brief, notes,
+report, and citation-verification log — of the query above. The
+`ion-trap-vs-superconducting-chemistry` example shows what a typical
+~3,500-word, 39-source report looks like before you install anything.
+
 ## Configure
 
 Set one of these env vars (the skill picks the first available):
