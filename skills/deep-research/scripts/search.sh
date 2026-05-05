@@ -30,13 +30,17 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if [[ -n "${TAVILY_API_KEY:-}" ]]; then
-  body=$(jq -nc --arg q "$query" --arg k "$TAVILY_API_KEY" --argjson n "$n" \
-    '{api_key:$k, query:$q, max_results:$n, search_depth:"advanced", include_answer:false}')
+  # Tavily: POST with Bearer auth. search_depth=advanced gives richer snippets
+  # (2 credits/call vs 1 for basic). max_results capped at 20 by the API.
+  body=$(jq -nc --arg q "$query" --argjson n "$n" \
+    '{query:$q, max_results:$n, search_depth:"advanced", include_answer:false}')
   curl -fsSL --max-time 30 -X POST https://api.tavily.com/search \
+    -H "Authorization: Bearer ${TAVILY_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "$body" \
   | jq '[.results[]? | {title, url, snippet: (.content // "")}]'
 elif [[ -n "${BRAVE_API_KEY:-}" ]]; then
+  # Brave: GET. count capped at 20.
   q_enc=$(jq -nr --arg q "$query" '$q | @uri')
   curl -fsSL --max-time 30 \
     "https://api.search.brave.com/res/v1/web/search?count=${n}&q=${q_enc}" \
@@ -44,8 +48,11 @@ elif [[ -n "${BRAVE_API_KEY:-}" ]]; then
     -H "Accept: application/json" \
   | jq '[.web.results[]? | {title, url, snippet: (.description // "")}]'
 elif [[ -n "${EXA_API_KEY:-}" ]]; then
+  # Exa: text/summary are NOT returned unless requested via `contents`.
+  # We cap text at ~1000 chars for snippet parity with Tavily/Brave;
+  # the agent can call fetch.sh for full page content.
   body=$(jq -nc --arg q "$query" --argjson n "$n" \
-    '{query:$q, numResults:$n, type:"auto", contents:{text:false}}')
+    '{query:$q, numResults:$n, type:"auto", contents:{text:{maxCharacters:1000}}}')
   curl -fsSL --max-time 30 -X POST https://api.exa.ai/search \
     -H "x-api-key: ${EXA_API_KEY}" \
     -H "Content-Type: application/json" \
