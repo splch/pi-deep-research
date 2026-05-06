@@ -1,0 +1,25 @@
+{
+  "name": "pi-deep-research",
+  "version": "0.1.0",
+  "description": "Multi-agent deep research extension for pi: planner → parallel workers → cited synthesis, with confidence labels, disagreement surfacing, and a provenance manifest.",
+  "keywords": ["pi-package", "deep-research", "agents", "research", "llm"],
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
