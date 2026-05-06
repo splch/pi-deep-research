@@ -1,0 +1,1515 @@
+{
+  "run_id": "2026-05-06T05-58-31-989Z",
+  "started_at": "2026-05-06T05:58:31.989Z",
+  "duration_ms": 1078967,
+  "query": "What are the best practices and industry standards for LLM-based \"deep research\" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?",
+  "instructions": "\nAUDIENCE\nTechnically-literate practitioner who is building, evaluating, or hardening an LLM deep-research system (e.g. an agent that plans sub-questions, fans out parallel web searches/fetches, and synthesizes a cited report). Assume familiarity with LLMs, RAG, tool use, and basic agent loops. Do not explain what an LLM is. Do explain non-obvious tradeoffs.\n\nSCOPE\nIn scope:\n  - Architecture patterns for deep-research agents: planner/worker decomposition, lead-agent + subagent fan-out (Anthropic's pattern), single-agent ReAct loops, tree-of-thought / iterative deepening, memory/scratchpad design.\n  - Production systems to compare and learn from: OpenAI Deep Research, Anthropic Claude Research / multi-agent research system, Google Gemini Deep Research, Perplexity Deep Research, You.com, plus notable open-source (GPT-Researcher, OpenDeepResearch, smolagents-based, LangGraph deep-research templates, Hugging Face open Deep Research).\n  - Sub-question planning and decomposition: breadth vs depth, when to recurse, stopping criteria, budget/iteration caps.\n  - Retrieval & browsing: search API choice, query reformulation, dedup, freshness, robots/ToS, handling paywalls and PDFs, JS-rendered pages.\n  - Grounding and citations: inline numbered citations, span-level attribution, hallucinated-citation detection, \"confidence\" labels, source diversity requirements.\n  - Evaluation: which benchmarks matter (BrowseComp, GAIA, HELM, Humanity's Last Exam, FRAMES, FreshQA, SimpleQA), LLM-as-judge graders, citation faithfulness metrics (e.g. Attributable to Identified Sources / AIS), human eval protocols, regression test design for agents.\n  - Safety and abuse: indirect prompt injection / XPIA from fetched pages, exfiltration risks (lethal trifecta: private data + untrusted content + outbound comms), data-leak guards, refusal patterns, sandboxing browsing.\n  - Cost, latency, and reliability: token budgets, parallelism, caching, model cascades (cheap planner + strong synthesizer), retry/timeout policy, partial-result handling.\n  - Prompting and context engineering specific to research agents: system prompt structure, tool descriptions, \"lost in the middle\" mitigations, context compaction, structured intermediate artifacts.\n\nOut of scope:\n  - General consumer \"prompt engineering\" tips for ChatGPT.\n  - Pure RAG-over-private-corpus systems with no web search and no agentic planning.\n  - Full surveys of LLM training or alignment unrelated to research agents.\n\nSOURCE PREFERENCES\nStrongly prefer (cite these where they exist):\n  - Engineering blog posts and system cards from the labs that ship these products: Anthropic (especially the multi-agent research system engineering post and Claude system cards), OpenAI (Deep Research launch + system card), Google DeepMind / Google blog (Gemini Deep Research), Perplexity engineering posts.\n  - arXiv / peer-reviewed papers on agentic search, multi-agent LLMs, BrowseComp, GAIA, FRAMES, AIS / attribution evaluation, Self-RAG, Search-Augmented LLMs, ReAct, Reflexion, Tree-of-Thoughts.\n  - Reputable engineering write-ups: LangChain/LangGraph blog, Hugging Face blog (open Deep Research), Simon Willison's notes on prompt injection and the \"lethal trifecta\", official LLM-eval framework docs (HELM, Inspect, OpenAI Evals).\n\nAcceptable but secondary: well-sourced technical journalism (The Information, Sequoia, a16z) for product comparisons; vendor docs.\n\nAvoid: SEO listicle blogs (\"Top 10 AI research tools 2024\"), Medium posts with no primary citations, marketing pages without technical detail, undated content.\n\nFor every non-trivial claim, prefer a primary source (lab blog, paper, official docs) over a secondary recap.\n\nGEOGRAPHY / TIME\nGlobal. Heavily weight 2024–2026 material — the deep-research product category effectively started in late 2024 (Gemini Deep Research Dec 2024, OpenAI Deep Research Feb 2025, Perplexity Deep Research Feb 2025, Anthropic multi-agent research system writeup mid-2025). Older foundational papers (ReAct 2022, Self-RAG 2023, AIS 2021) are fine when they're the canonical reference.\n\nOUTPUT FORMAT\nStructured Markdown report with these top-level sections, in this order:\n  1. Executive summary (≤8 bullets, each one practice + why).\n  2. Reference architectures — diagrams-in-prose comparing single-agent vs orchestrator-worker vs hierarchical planner; concrete examples from named systems.\n  3. Planning & decomposition — breadth/depth, recursion, budget caps, stopping rules, with empirical numbers where available (e.g. Anthropic's reported token-use multipliers, parallel subagent counts).\n  4. Retrieval & browsing — search backends, query rewriting, source dedup/diversity, freshness, PDFs.\n  5. Grounding & citations — citation styles, faithfulness/attribution metrics (AIS, citation-F1), hallucinated-citation detection, confidence labeling.\n  6. Evaluation — benchmarks (BrowseComp, GAIA, FRAMES, HLE, SimpleQA, FreshQA), LLM-judge protocols, regression strategy for non-deterministic agents.\n  7. Safety & abuse — indirect prompt injection, lethal-trifecta exfiltration, sandboxing, allowlists, output filtering.\n  8. Cost, latency, reliability — model cascades, parallelism, caching, partial-result handling, observability.\n  9. Open problems & disagreements — places where labs/practitioners visibly disagree (e.g. multi-agent vs strong-single-agent, when long context replaces RAG, citation UX).\n  10. Concrete checklist — a numbered \"if you're building one tomorrow\" checklist of ~15 items.\n\nUse inline numbered citations like [1], [2] tied to a numbered References section at the end. For each cited claim, include a confidence label (High / Medium / Low) reflecting source quality and corroboration. Note publication dates next to each reference.\n\nCOMPLETENESS CHECKLIST (the report MUST address each)\n  [ ] Names and briefly characterizes architectures of OpenAI, Anthropic, Google, and Perplexity deep-research systems with primary-source citations.\n  [ ] Reports concrete numbers from Anthropic's multi-agent research engineering post (token usage vs single-agent, performance lift, parallel subagent counts) if available.\n  [ ] Discusses orchestrator-worker vs single-agent tradeoffs explicitly.\n  [ ] Lists at least 4 evaluation benchmarks relevant to deep research and what each measures.\n  [ ] Covers citation faithfulness metrics (AIS or equivalent) and hallucinated-citation detection.\n  [ ] Addresses indirect prompt injection from fetched web pages and the \"lethal trifecta\" exfiltration pattern.\n  [ ] Covers cost/latency mitigations (parallelism, model cascade, caching) with at least one quantitative anchor.\n  [ ] Notes at least 2 substantive disagreements or open questions in the field.\n  [ ] Ends with a 15-ish-item concrete build checklist.\n  [ ] Flags any claim where sources conflict or evidence is thin.\n\nLENGTH\nAim for a thorough report (target ~3,000–5,000 words of body text). Depth over breadth — better to cite one primary source well than three listicles.\n",
+  "config": {
+    "breadth": 5,
+    "depth": 2,
+    "concurrency": 5,
+    "max_sources": 35
+  },
+  "plan": [
+    "What are the documented architectures, orchestration patterns, and quantitative engineering details (token-use multipliers, parallel subagent counts, performance lifts, model cascades) of the production deep-research systems from Anthropic (Claude multi-agent research system), OpenAI (Deep Research), Google (Gemini Deep Research), and Perplexity Deep Research, according to their own engineering blog posts, system cards, and official documentation in 2024–2026?",
+    "What concrete techniques do primary sources (arXiv papers on ReAct, Self-RAG, Reflexion, Tree-of-Thoughts; LangGraph/LangChain, Hugging Face Open Deep Research, GPT-Researcher, smolagents engineering write-ups) recommend for sub-question planning and decomposition in deep-research agents — specifically breadth-vs-depth tradeoffs, recursion criteria, iteration/budget caps, stopping rules, and scratchpad/memory design?",
+    "What are the current best practices for retrieval, browsing, and citation grounding in deep-research agents — including search backend selection, query rewriting, source deduplication and diversity, freshness handling, PDF/JS-rendered page extraction, inline citation styles, and citation-faithfulness metrics such as Attributable to Identified Sources (AIS), citation-F1, and hallucinated-citation detection — based on primary papers and lab engineering posts?",
+    "Which evaluation benchmarks and protocols are considered authoritative for deep-research agents — specifically BrowseComp, GAIA, FRAMES, Humanity's Last Exam, SimpleQA, FreshQA, and HELM — what does each measure, what scores have leading systems reported, and what LLM-as-judge and human-eval protocols (including regression testing for non-deterministic agents) are documented in their original papers and official leaderboards?",
+    "What documented limitations, failure modes, and substantive critiques exist for LLM deep-research systems — including indirect/cross-domain prompt injection (XPIA) from fetched pages, the 'lethal trifecta' exfiltration pattern (Simon Willison), evidence that strong single-agent systems can match or beat multi-agent orchestration, citation hallucination and over-confidence in synthesis, benchmark-gaming on BrowseComp/GAIA, and reported safety incidents or red-team findings in lab system cards from 2024–2026?"
+  ],
+  "findings": [
+    {
+      "sub_question": "What are the documented architectures, orchestration patterns, and quantitative engineering details (token-use multipliers, parallel subagent counts, performance lifts, model cascades) of the production deep research systems from Anthropic (Claude multi-agent research system), OpenAI (Deep Research), Google (Gemini Deep Research), and Perplexity Deep Research, according to their own engineering blog posts, system cards, and official documentation in 2024–2026?",
+      "summary": "All four production deep-research systems share a common high-level shape — a planning/decomposition stage, an iterative tool-augmented search/reason loop, and a final cited-synthesis stage — but they differ sharply in orchestration topology and the engineering trade-offs they expose. Anthropic's Claude Research (Jun 2025 engineering blog) is explicitly an orchestrator-worker multi-agent system: a Claude Opus 4 LeadResearcher decomposes the query, persists a plan to an external Memory (to survive 200K-token context truncation), spawns 3–5 Claude Sonnet 4 subagents in parallel — each running its own OODA loop with 3+ parallel tool calls and its own context window — and then a separate CitationAgent attributes claims to sources. Quantitatively, the Opus-4-lead/Sonnet-4-subagent configuration outperforms single-agent Opus 4 by 90.2% on Anthropic's internal research eval; token usage alone explains ~80% of variance on BrowseComp (token-count, tool-call count, and model choice together explain ~95%). Multi-agent runs burn ~15× the tokens of chat (vs. ~4× for single-agent), parallelization cut research time up to 90%, and a self-improving tool-description agent yielded a 40% drop in task-completion time. Effort scaling is hard-coded in prompts: 1 agent / 3–10 calls for fact-finding, 2–4 subagents / 10–15 calls for comparisons, 10+ subagents for complex research. Subagents are run synchronously today; deployments use 'rainbow' traffic shifts to avoid breaking long-running agents.\n\nOpenAI Deep Research (Feb 2025 launch + system card) takes the opposite topological choice: a single agentic model — an early version of o3 optimized for web browsing — is trained end-to-end via reinforcement learning on browsing tasks (search/click/scroll/file-interpretation plus a sandboxed Python tool with no internet access). There is no parallel subagent fan-out described; instead, capability scales with test-time compute and 'max tool calls' per run (5–30 minutes wall-clock per query). A second, custom-prompted o3-mini model summarizes the chain of thought for the user. Quantitative lifts: Humanity's Last Exam 26.6% (vs. o1 9.1%, o3-mini-high 13.0%), GAIA 67.36 pass@1 / 72.57 cons@64 (state of the art at release), SWE-bench Verified 68% (+20 pts over o1), and a measurable monotonic relationship between max tool calls and pass-rate on internal expert tasks. The Preparedness Framework rated Deep Research 'Medium' risk across all four tracked categories (cybersecurity, CBRN, persuasion, model autonomy) — the first model rated medium on cybersecurity. Mitigations include refusing arbitrary URL construction (to block API-key exfiltration via prompt injection), with prompt-injection attack-success rate driven from 3–18% pre-mitigation to ~0–2.6% post-mitigation. Rate limits started at 100 queries/month for Pro; an o4-mini-based 'lightweight' variant later expanded access (250/month Pro, 25/month Plus, 5/month Free). The Feb 2026 update added MCP/app connectors and trusted-site restriction.\n\nGoogle Gemini Deep Research (Dec 2024 launch, plus Dec 2025 Interactions API and Apr 2026 Deep Research/Deep Research Max) is architecturally closest to the Anthropic pattern in spirit but uses a single planner that orchestrates concurrent task models rather than spawning independent agents. Components: (1) a multi-step planner that produces a user-editable research plan; (2) task models that the planner schedules — explicitly 'intelligently determines which sub-tasks can be tackled simultaneously and which need to be done sequentially'; (3) a synthesis stage with self-critique passes. A 'novel asynchronous task manager' maintains shared state between planner and task models so single failures don't restart the run, and the system uses Gemini's 1M-token context plus a RAG layer to retain hundreds of pages browsed within a session. Model cascade is unusually explicit: launched on Gemini 1.5 Pro → upgraded to Gemini 2.0 Flash Thinking (cited as both quality and serving-efficiency improvement enabling much wider access) → Gemini 3 Pro for the Dec 2025 Interactions-API agent (HLE 46.4%, DeepSearchQA 66.1%, BrowseComp 59.2%) → Gemini 3.1 Pro for Apr 2026's two-SKU split: 'Deep Research' (low-latency, interactive) and 'Deep Research Max' (extended test-time compute for asynchronous, comprehensive runs). Google's own DeepSearchQA paper notes pass@8 substantially exceeds pass@1, validating parallel trajectory exploration. The agent integrates Google Search, MCP servers, URL Context, Code Execution, File Search, and (in 2026) native chart/infographic generation.\n\nPerplexity Deep Research (launched Feb 14, 2025) is the most opaque architecturally but explicitly positions itself as a single-agent iterative loop on top of Perplexity's AI-first search stack, branded later as the 'Sonar Deep Research' model. Per the launch blog: it 'performs dozens of searches, reads hundreds of sources, and reasons through the material,' iteratively searching, reading, and refining a plan, then synthesizing a report — typically completing in 2–4 minutes (vs. 5–30 minutes for OpenAI/Google). Reported benchmarks: Humanity's Last Exam 21.1% (above Gemini Thinking, o3-mini, o1, DeepSearchR1 at the time of launch but well below OpenAI Deep Research's 26.6%) and SimpleQA 93.9%. The retrieval substrate is described in Perplexity's own April 2026 'How Perplexity Builds Accuracy' post and Sept 2025 search-API article: hybrid keyword+semantic retrieval, multi-stage ranking (a fast recall step in 100–200 ms followed by slower rerankers), and a 'content understanding' module that segments pages into spans used as first-class retrieval units. Their post-training pipeline trains the answer model in two stages — instruction/tool behavior first, harder search/synthesis tasks second — and uses rubric-based rewards for open-ended tasks plus a discipline term that penalizes search steps and tokens that don't measurably improve the answer. Pricing/availability documented in third-party sources (5 free queries/day, 500/day for Pro at launch); a Feb 2026 internal benchmark, DRACO, was released to measure deep-research accuracy/completeness/objectivity.\n\nCross-cutting patterns from primary sources: (i) every system implements a plan → iterate (search/read/reason) → synthesize → cite pipeline; (ii) Anthropic and Google explicitly support parallelism (Anthropic via subagents, Google via planner-scheduled concurrent tasks), while OpenAI and Perplexity at launch describe primarily sequential single-agent loops scaled by test-time compute; (iii) all four use a smaller/cheaper companion model somewhere — OpenAI's o3-mini for chain-of-thought summarization, Google's Flash variants for efficiency, Anthropic's Sonnet for subagents under an Opus lead, and Perplexity's lighter chat models for non-deep tasks; (iv) memory/state durability is a recurring engineering theme (Anthropic's external Memory store, Google's asynchronous task manager with shared state, OpenAI's safety system blocking URL-construction-based exfiltration); (v) reported cost is dominated by token usage that scales with 'depth' — Anthropic quantifies ~15× chat baseline for multi-agent, OpenAI calls Deep Research 'very compute intensive' and rate-limits accordingly, Google explicitly markets Deep Research Max as paying for more extended test-time compute, and Perplexity charges per-query plus per-token in its API.",
+      "key_facts": [
+        {
+          "claim": "Anthropic's Claude Research uses an orchestrator-worker multi-agent architecture: a LeadResearcher (Claude Opus 4) plans, saves the plan to an external Memory store, spawns parallel subagents (Claude Sonnet 4), and a separate CitationAgent attributes claims at the end.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic reports the Opus-4-lead + Sonnet-4-subagents multi-agent system outperforms single-agent Claude Opus 4 by 90.2% on its internal research eval.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic measured that token usage alone explains ~80% of performance variance on BrowseComp; combined with tool-call count and model choice, those three factors explain ~95% of variance.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic states agents typically use ~4× more tokens than chat interactions and multi-agent systems use ~15× more tokens than chat.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic's prompt-encoded effort-scaling rule allocates 1 agent with 3–10 tool calls for simple fact-finding, 2–4 subagents with 10–15 calls each for comparisons, and >10 subagents for complex research; the lead agent typically spins up 3–5 subagents in parallel and each subagent runs 3+ tools in parallel.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic reports parallelization cut research time by up to 90% for complex queries, and a tool-testing agent that rewrote MCP tool descriptions reduced future-agent task-completion time by 40%.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "OpenAI Deep Research is powered by an early version of OpenAI o3 optimized for web browsing, trained via end-to-end reinforcement learning on browsing tasks (search/click/scroll/file-reading) plus a sandboxed Python tool with no internet access.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        {
+          "claim": "OpenAI Deep Research uses a second, custom-prompted o3-mini model to summarize the chain of thought shown to users in ChatGPT.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5
+          ]
+        },
+        {
+          "claim": "On Humanity's Last Exam, OpenAI Deep Research scored 26.6% (vs. o1 9.1%, o3-mini-high 13.0%, Gemini Thinking 6.2%); on GAIA it reached 67.36 pass@1 / 72.57 cons@64; on SWE-bench Verified it scored 68% (+20 pts over o1).",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        {
+          "claim": "OpenAI's Preparedness Framework classified Deep Research as Medium risk across all four tracked categories (cybersecurity, CBRN, persuasion, model autonomy) — the first model rated medium on cybersecurity.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5,
+            6
+          ]
+        },
+        {
+          "claim": "OpenAI mitigated prompt injection by training data and by disallowing arbitrary URL construction (blocking API-key exfiltration via URL parameters); post-mitigation prompt-injection attack-success rates fell to 0–2.6% across multiple attack types.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5,
+            6
+          ]
+        },
+        {
+          "claim": "OpenAI initially rate-limited Deep Research at 100 queries/month for Pro users; an o4-mini-based 'lightweight' variant later expanded limits to 250/month for Pro, 25/month for Plus/Team/Enterprise/Edu, and 5/month for Free.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            7
+          ]
+        },
+        {
+          "claim": "OpenAI's internal expert-task evaluation showed pass-rate increases monotonically with 'max tool calls,' confirming that giving the agent more browsing/thinking budget improves quality.",
+          "confidence": "verified",
+          "sources": [
+            7
+          ]
+        },
+        {
+          "claim": "Google Gemini Deep Research uses a planner that produces a user-editable research plan, then orchestrates task models that run sub-tasks in parallel where possible and sequentially when dependencies require it, followed by a synthesis stage with self-critique passes.",
+          "confidence": "verified",
+          "sources": [
+            9,
+            11
+          ]
+        },
+        {
+          "claim": "Google built an 'asynchronous task manager' that maintains shared state between the planner and task models, allowing graceful error recovery without restarting the entire research task.",
+          "confidence": "verified",
+          "sources": [
+            9
+          ]
+        },
+        {
+          "claim": "Gemini Deep Research uses Gemini's 1M-token context window combined with a RAG setup so the agent retains content browsed across a session.",
+          "confidence": "verified",
+          "sources": [
+            9,
+            11
+          ]
+        },
+        {
+          "claim": "Gemini Deep Research's model cascade evolved from Gemini 1.5 Pro (Dec 2024 launch) to Gemini 2.0 Flash Thinking (cited as improving both quality and serving efficiency, enabling broader access), to Gemini 3 Pro (Dec 2025 Interactions-API release) and Gemini 3.1 Pro (Apr 2026, splitting into 'Deep Research' and 'Deep Research Max' SKUs).",
+          "confidence": "verified",
+          "sources": [
+            8,
+            9,
+            10,
+            11
+          ]
+        },
+        {
+          "claim": "On the Dec 2025 Interactions-API release, Gemini Deep Research reported state-of-the-art Humanity's Last Exam 46.4%, DeepSearchQA 66.1%, and BrowseComp 59.2%.",
+          "confidence": "single-source",
+          "sources": [
+            8
+          ]
+        },
+        {
+          "claim": "Google's DeepSearchQA benchmark contains 900 hand-crafted 'causal chain' tasks across 17 fields, and Google reports that pass@8 substantially exceeds pass@1, demonstrating the value of running multiple parallel trajectories for verification.",
+          "confidence": "single-source",
+          "sources": [
+            8
+          ]
+        },
+        {
+          "claim": "Apr 2026's 'Deep Research Max' is described by Google as leveraging 'extended test-time compute to iteratively reason, search and refine' for asynchronous workflows, while the standard 'Deep Research' SKU is optimized for interactive low-latency use; both are built on Gemini 3.1 Pro and add MCP support, native chart/infographic generation, and collaborative plan editing.",
+          "confidence": "single-source",
+          "sources": [
+            10
+          ]
+        },
+        {
+          "claim": "Perplexity Deep Research (Feb 14, 2025 launch) iteratively searches, reads documents, and reasons through results, refining its plan, then synthesizes a report — typically completing in 2–4 minutes per query.",
+          "confidence": "verified",
+          "sources": [
+            12,
+            13
+          ]
+        },
+        {
+          "claim": "Perplexity Deep Research scored 21.1% on Humanity's Last Exam and 93.9% on SimpleQA at launch, beating Gemini Thinking, o3-mini, o1, and DeepSeek-R1 on HLE but trailing OpenAI Deep Research's 26.6%.",
+          "confidence": "verified",
+          "sources": [
+            12,
+            13
+          ]
+        },
+        {
+          "claim": "Perplexity made Deep Research free with daily caps (5 queries/day for non-subscribers, 500/day for Pro) — substantially higher per-user volume than OpenAI's monthly caps.",
+          "confidence": "verified",
+          "sources": [
+            12,
+            13
+          ]
+        },
+        {
+          "claim": "Perplexity's underlying retrieval stack uses hybrid (keyword + semantic) retrieval with multi-stage ranking (a fast recall step under ~100–200 ms followed by slower rerankers) and a 'content understanding' module that segments pages into spans used as first-class retrieval units.",
+          "confidence": "single-source",
+          "sources": [
+            14
+          ]
+        },
+        {
+          "claim": "Perplexity post-trains its answer model in two stages — first instruction/tool behavior, then harder search and synthesis tasks — and uses rubric-based rewards for open-ended tasks plus a discipline term that penalizes search steps and tokens that do not measurably improve the answer.",
+          "confidence": "single-source",
+          "sources": [
+            15
+          ]
+        },
+        {
+          "claim": "Anthropic's evaluation philosophy combines small-N (~20 queries) early-stage iteration, an LLM-as-judge with a single 0.0–1.0 score plus pass/fail (rubric: factual accuracy, citation accuracy, completeness, source quality, tool efficiency), and human evaluation to catch source-quality biases (e.g., SEO content farms over academic PDFs).",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic deploys agent updates using 'rainbow deployments' — gradually shifting traffic from old to new versions while running both — to avoid breaking long-running stateful agents in flight.",
+          "confidence": "single-source",
+          "sources": [
+            0,
+            3
+          ]
+        },
+        {
+          "claim": "Anthropic notes its lead agents currently invoke subagents synchronously, creating bottlenecks (the lead can't steer subagents mid-flight, and the run blocks on the slowest subagent); asynchronous execution is identified as a future direction.",
+          "confidence": "single-source",
+          "sources": [
+            0,
+            3
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.anthropic.com/engineering/multi-agent-research-system",
+          "title": "How we built our multi-agent research system — Anthropic Engineering",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://simonwillison.net/2025/Jun/14/multi-agent-research-system",
+          "title": "Anthropic: How we built our multi-agent research system — Simon Willison's Weblog",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://engineering.01cloud.com/2025/06/30/claude-meets-the-research-team-inside-anthropics-multi-agent-masterpiece/",
+          "title": "Claude Meets the Research Team: Inside Anthropic's Multi-Agent Masterpiece — 01cloud Engineering Blog",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://differ.blog/p/how-we-built-our-multi-agent-research-system-d59b33",
+          "title": "How we built our multi-agent research system — Differ (summary of Anthropic post)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://openai.com/index/deep-research-system-card/",
+          "title": "Deep research System Card | OpenAI",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://cdn.openai.com/deep-research-system-card.pdf",
+          "title": "Deep Research System Card (PDF) — OpenAI, Feb 25 2025",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://deploymentsafety.openai.com/deep-research",
+          "title": "Deep Research System Card — OpenAI Deployment Safety Hub",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://openai.com/index/introducing-deep-research",
+          "title": "Introducing deep research | OpenAI (Feb 2 2025 launch post with later updates through Feb 2026)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://blog.google/innovation-and-ai/technology/developers-tools/deep-research-agent-gemini-api/",
+          "title": "Build with Gemini Deep Research — Google blog (Dec 11 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://gemini.google/pf/overview/deep-research/",
+          "title": "Gemini Deep Research – your personal research assistant — Gemini product page",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/next-generation-gemini-deep-research/",
+          "title": "Deep Research Max: a step change for autonomous research agents — Google blog (Apr 21 2026)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://blog.google/products/gemini/google-gemini-deep-research",
+          "title": "Gemini: Try Deep Research and Gemini 2.0 Flash Experimental — Google blog (Dec 11 2024)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.perplexity.ai/hub/blog/introducing-perplexity-deep-research",
+          "title": "Introducing Perplexity Deep Research — Perplexity Blog (Feb 14 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.linkedin.com/posts/perplexity-ai_introducing-deep-research-on-perplexity-activity-7296217839827308546---0z",
+          "title": "Introducing Deep Research on Perplexity — Perplexity LinkedIn announcement",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://research.perplexity.ai/articles",
+          "title": "Perplexity Research — index of articles (Sept 2025 search API piece, Feb 2026 DRACO benchmark, Apr 2026 search-augmented LLMs piece)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.perplexity.ai/hub/blog/how-perplexity-builds-accuracy-into-frontier-ai",
+          "title": "How Perplexity Builds Accuracy into Frontier AI — Perplexity Blog (Apr 22 2026)",
+          "retrieved_at": "2026-05-05"
+        }
+      ],
+      "disagreements": [
+        "Reported HLE scores differ across systems and dates — OpenAI Deep Research 26.6% (Feb 2025), Perplexity Deep Research 21.1% (Feb 2025), and Gemini Deep Research 46.4% (Dec 2025) — but they are not directly comparable because each was run at a different point in time on evolving benchmarks/test sets and each system uses different scaffolding/tool budgets. This is not a contradiction so much as a temporal/methodology gap that the source posts do not normalize.",
+        "Anthropic's blog explicitly says today's lead agents call subagents synchronously, while Google's Gemini Deep Research blog claims its task manager is 'truly asynchronous' — these reflect genuinely different engineering choices, not source disagreement.",
+        "Third-party coverage (lyfeai.com.au) gives specific Perplexity Sonar Deep Research API pricing (≈$5/1k searches, $2/M input, $8/M output, $2/M citation, $3/M reasoning tokens) and a 128k-token context, but I could not independently verify these numbers from Perplexity's own documentation in this run because the search service became unavailable mid-investigation; treat those specific figures as unverified.",
+        "I attempted multiple follow-up searches and a direct fetch of Perplexity's research index (DRACO benchmark page, sonar-deep-research API docs) but the web_search/web_fetch tools returned 'Unexpected end of JSON input' errors repeatedly toward the end of the session, so deeper Perplexity-specific architectural details (parallel subagent counts, exact model cascade) remain less complete than for the other three vendors."
+      ]
+    },
+    {
+      "sub_question": "What concrete techniques do primary sources (arXiv papers on ReAct, Self-RAG, Reflexion, Tree-of-Thoughts; LangGraph/LangChain, Hugging Face Open Deep Research, GPT-Researcher, smolagents engineering write-ups) recommend for sub-question planning and decomposition in deep-research agents — specifically breadth-vs-depth tradeoffs, recursion criteria, iteration/budget caps, stopping rules, and scratchpad/memory design?",
+      "summary": "Across the cited primary sources a clear architectural pattern has converged for sub-question planning in deep-research agents: a three-phase pipeline of (1) scoping/clarification, (2) iterative recursive research, and (3) final synthesis, with explicit numeric knobs for breadth, depth, and per-stage iteration caps, plus reflection-driven stopping rules. ReAct (Yao et al., arXiv 2210.03629) established the foundational scratchpad pattern — interleaved Thought/Action/Observation traces where 'thoughts' explicitly decompose goals ('I need to search x, find y, then find z'), track sub-goal progress, and reformulate queries on failure; ReAct also pioneered hard step caps (7 steps for HotpotQA, 5 for FEVER, chosen empirically because additional steps did not improve accuracy) and a fallback-on-failure stopping rule (back off to CoT self-consistency when steps are exhausted, and back off to ReAct when CoT-SC majority is below n/2). Reflexion (Shinn et al., arXiv 2303.11366) layered an episodic 'verbal RL' memory on top: an actor (often a ReAct agent) plus an evaluator plus a self-reflection generator that writes natural-language critiques into an episodic buffer; trials are repeated up to a configurable num_trials cap, and the reference implementation exposes four memory strategies (NONE / LAST_ATTEMPT / REFLEXION / LAST_ATTEMPT_AND_REFLEXION) that explicitly separate short-term trajectory from long-term reflective memory. Tree-of-Thoughts (Yao et al., arXiv 2305.10601) generalized this to deliberate search over 'coherent units of text', using BFS or DFS controllers, an LLM-as-evaluator (value or vote scoring) to prune branches, and explicit branching/depth hyperparameters with the ability to look-ahead and backtrack. Self-RAG (Asai et al., arXiv 2310.11511) provides a complementary fine-grained recursion criterion: instead of a fixed per-step retrieval, the model emits Retrieve={yes,no,continue} reflection tokens segment-by-segment, and the inference algorithm exposes a soft retrieval threshold δ over the normalized P(Retrieve=Yes) plus tree-decoding with critique-token-weighted segment-level beam search (beam size B over K retrieved passages) that scores partial outputs by ISREL/ISSUP/ISUSE — so 'budget' becomes a per-segment, learned decision rather than a global counter.\n\nThe production deep-research systems all instantiate these patterns with concrete numeric knobs. GPT-Researcher's deep-research skill (assafelovic/gpt-researcher) is the most explicit: DEEP_RESEARCH_BREADTH (default 3–4) controls parallel paths per level, DEEP_RESEARCH_DEPTH (default 2) controls recursion levels, DEEP_RESEARCH_CONCURRENCY (default 4) is an asyncio semaphore, and the recursion explicitly halves breadth at each level (`new_breadth = max(2, breadth // 2)`) and decrements depth, terminating when depth ≤ 1. Each branch summarizes raw search results into 'learnings' with URL citations and 'follow-up questions' that become the next level's query (`next_query = previous research goal + follow-up questions`). A hard 25,000-word context cap (MAX_CONTEXT_WORDS) is enforced via trim_context_to_word_limit, which keeps the most recent items — an explicit budget on scratchpad size, separate from step caps. Other defaults: MAX_ITERATIONS=3 for query expansion, MAX_SUBTOPICS=3, MAX_SEARCH_RESULTS_PER_QUERY=5. Hugging Face's Open Deep Research (smolagents) uses a manager CodeAgent (max_steps=12, planning_interval=4) that delegates to a ToolCallingAgent search_agent (max_steps=20, planning_interval=4); the engineering rationale is that code-actions are ~30% fewer steps than JSON tool-calls (citing Wang et al. 2024), and code variables provide native scratchpad/state for multimodal artifacts.\n\nLangGraph/LangChain Open Deep Research (per a detailed step-by-step walkthrough) and the analogous DeerFlow, dzhng/deep-research, and OpenDeepResearcher implementations converge on a 'supervisor + isolated sub-agents' multi-agent pattern. The supervisor is bound to three tool schemas — think_tool (reflection), conduct_research (spawn sub-agent subgraph), and ResearchComplete (terminate) — using a 'manual tool-use' pattern where conduct_research spawns parallel research subgraphs whose results are returned as compact summaries rather than added to the supervisor's message history (explicitly to avoid context-window bloat). Each sub-agent has its own subgraph (researcher → research_tools → compress_research), its own message buffer, and its own iteration counter. Stopping rules are layered: supervisor calls think_tool before every decision and emits ResearchComplete when reflection deems coverage sufficient; a hard research_iterations counter prevents runaway recursion; sub-agents call their own research_complete when their topic is exhausted; compress_research compresses raw search dumps before returning. DeerFlow adds an explicit human-in-the-loop plan-modification step and a max plan-count cap. dzhng/deep-research exposes user-facing depth/breadth/isReport parameters and recursively halves breadth and decrements depth at each level, mirroring GPT-Researcher. OpenDeepResearcher (Shumer) uses a simpler iterative loop: 4 parallel queries per round, asynchronous search + LLM relevance filter + extractor + global memory aggregation; the LLM itself decides whether to issue new queries or emit 'done' as the stopping rule, with a hard max-iteration cap as backstop.\n\nCommon recommendations that emerge from triangulation across these sources: (a) make breadth and depth explicit configurable hyperparameters and decay them over recursion (typically halve breadth, decrement depth); (b) separate 'scratchpad' (raw thought+action+observation trace within a step/sub-agent) from 'long-term memory' (compressed learnings, reflections, citations) and pass only the compressed form upward; (c) enforce *both* a hard step/iteration cap (ReAct's 7 for HotpotQA; smolagents max_steps=12/20; supervisor research_iterations) *and* a soft reflection-based stopping rule (think_tool / Reflexion self-evaluation / Self-RAG ISUSE token / 'done' from LLM); (d) use a planning_interval (smolagents' value 4) to re-plan periodically rather than only at the start; (e) summarize/compress retrieved content before storing it in working memory (Self-RAG segment summarization, dzhng's 'learnings', LangGraph compress_research, GPT-Researcher's process_research_results); (f) deliver findings (information) rather than finished prose between sub-agents and the report writer to preserve coherence in the final synthesis; and (g) provide a soft retrieval/budget knob (Self-RAG's δ threshold; reasoning_effort = low/medium/high in GPT-Researcher and Open Deep Research) so users can trade quality against cost.",
+      "key_facts": [
+        {
+          "claim": "ReAct prompts include explicit decomposition thoughts of the form 'I need to search x, find y, then find z' and use thoughts to track progress, reformulate queries, and synthesize answers — making the thought stream the agent's working-memory scratchpad.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1
+          ]
+        },
+        {
+          "claim": "ReAct uses an empirically chosen hard step cap (7 steps for HotpotQA, 5 for FEVER) because more steps were shown not to improve performance, and falls back to CoT self-consistency when ReAct fails to return an answer within the cap; conversely it falls back to ReAct from CoT-SC when the majority answer occurs in fewer than n/2 of n samples.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1
+          ]
+        },
+        {
+          "claim": "ReAct's most common failure mode is reasoning-loop / repetitive thoughts (≈47% of failures on HotpotQA), with non-informative search accounting for ≈23%; the authors suggest beam-search decoding as a mitigation — motivating tree-search successors.",
+          "confidence": "single-source",
+          "sources": [
+            0
+          ]
+        },
+        {
+          "claim": "Self-RAG makes retrieval an adaptive, per-segment decision: the model emits a Retrieve∈{yes, no, continue} token at each segment, and a configurable threshold δ on the normalized probability of Retrieve=Yes lets users tune retrieval frequency without retraining.",
+          "confidence": "verified",
+          "sources": [
+            2,
+            3
+          ]
+        },
+        {
+          "claim": "Self-RAG uses segment-level beam search (beam size B over K retrieved passages) where the score is a weighted linear sum of normalized critique-token probabilities (ISREL, ISSUP, ISUSE), giving a soft, multi-criterion stopping/selection rule rather than a global iteration cap.",
+          "confidence": "verified",
+          "sources": [
+            2,
+            3
+          ]
+        },
+        {
+          "claim": "Reflexion separates an actor (often a ReAct agent), an evaluator that produces scalar/textual feedback, and a self-reflection module that writes verbal critiques into an episodic memory buffer that persists across trials, with a configurable num_trials cap as the budget.",
+          "confidence": "verified",
+          "sources": [
+            4,
+            5
+          ]
+        },
+        {
+          "claim": "The Reflexion reference implementation exposes four explicit memory-strategy options (NONE / LAST_ATTEMPT / REFLEXION / LAST_ATTEMPT_AND_REFLEXION), letting practitioners ablate the contribution of short-term trajectory vs long-term reflection memory.",
+          "confidence": "verified",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "Tree of Thoughts decomposes problems into 'coherent units of text' (thoughts) and runs deliberate BFS or DFS search over a thought tree, using an LLM evaluator (value or vote scoring) to prune branches and supporting look-ahead and backtracking — making branching factor and depth explicit hyperparameters.",
+          "confidence": "verified",
+          "sources": [
+            6
+          ]
+        },
+        {
+          "claim": "Hugging Face's Open Deep Research argues code-actions reduce step counts by ~30% vs JSON tool-calls (citing Wang et al. 2024) and uses a manager CodeAgent (max_steps=12, planning_interval=4) that delegates to a search_agent ToolCallingAgent (max_steps=20, planning_interval=4) — both step caps and a periodic re-planning interval are explicit.",
+          "confidence": "verified",
+          "sources": [
+            7,
+            8
+          ]
+        },
+        {
+          "claim": "GPT-Researcher's deep_research skill exposes DEEP_RESEARCH_BREADTH (default 3–4), DEEP_RESEARCH_DEPTH (default 2), and DEEP_RESEARCH_CONCURRENCY (default 4) as configurable knobs, plus a 25,000-word MAX_CONTEXT_WORDS scratchpad cap and trim_context_to_word_limit that keeps the most recent items.",
+          "confidence": "verified",
+          "sources": [
+            9,
+            10,
+            11
+          ]
+        },
+        {
+          "claim": "GPT-Researcher's recursion explicitly halves breadth and decrements depth at each level (`new_breadth = max(2, breadth // 2)`, `new_depth = depth - 1`), and constructs the next-level query from the previous research goal plus model-generated follow-up questions — operationalizing the breadth-vs-depth tradeoff as a decaying tree.",
+          "confidence": "verified",
+          "sources": [
+            11
+          ]
+        },
+        {
+          "claim": "GPT-Researcher additionally caps query-expansion iterations (MAX_ITERATIONS=3), sub-topic count (MAX_SUBTOPICS=3), and per-query results (MAX_SEARCH_RESULTS_PER_QUERY=5), and exposes a coarse reasoning_effort knob (low/medium/high) for strategic-LLM cost control.",
+          "confidence": "verified",
+          "sources": [
+            10
+          ]
+        },
+        {
+          "claim": "LangGraph/LangChain Open Deep Research uses a three-phase architecture (scoping → research → final report), where scoping runs a clarification loop with structured output, then writes a research brief that is the only context passed downstream.",
+          "confidence": "verified",
+          "sources": [
+            12
+          ]
+        },
+        {
+          "claim": "In LangGraph Open Deep Research the supervisor is bound to three tool schemas (think_tool, conduct_research, ResearchComplete) but uses a manual tool-execution pattern: conduct_research spawns isolated parallel research subgraphs whose results are returned as compact summaries rather than appended to the supervisor's message history, explicitly to avoid context-window bloat.",
+          "confidence": "single-source",
+          "sources": [
+            12
+          ]
+        },
+        {
+          "claim": "LangGraph Open Deep Research stops research via a layered rule: supervisor calls think_tool before every decision and emits ResearchComplete when reflection deems coverage sufficient, but a hard research_iterations counter prevents runaway recursion as a backstop.",
+          "confidence": "single-source",
+          "sources": [
+            12
+          ]
+        },
+        {
+          "claim": "An engineering principle stated explicitly in the LangChain Open Deep Research walkthrough is that sub-agents should deliver compressed 'findings/learnings' (information) rather than finished prose, because letting the final report writer compose from raw learnings produces more coherent reports than stitching independently-written paragraphs.",
+          "confidence": "single-source",
+          "sources": [
+            12,
+            13
+          ]
+        },
+        {
+          "claim": "dzhng/deep-research (the same recursive-tree pattern that inspired GPT-Researcher's deep-research mode) takes user-facing query, depth, breadth, and isReport parameters; halves breadth and decrements depth per level; uses an LLM clarification step to ask follow-up questions; and summarizes each branch into 'learnings' before recursing.",
+          "confidence": "single-source",
+          "sources": [
+            13
+          ]
+        },
+        {
+          "claim": "OpenDeepResearcher (Shumer) issues 4 parallel search queries per round, performs LLM-based relevance filtering and per-page extraction into a global 'aggregated_contexts' memory, and lets the LLM itself decide whether to issue new queries or emit 'done' — with a maximum-iteration cap as a hard backstop.",
+          "confidence": "single-source",
+          "sources": [
+            13
+          ]
+        },
+        {
+          "claim": "DeerFlow uses a hierarchical multi-agent design (coordinator → planner → research_team with researcher and coder sub-agents → reporter), with a maximum plan-count cap and an explicit human-in-the-loop plan-modification step that can route control back to the planner.",
+          "confidence": "single-source",
+          "sources": [
+            13
+          ]
+        },
+        {
+          "claim": "A common cross-system recommendation is to keep a multi-round, progressive search that adaptively converges or diverges based on accumulated 'learnings/findings', rather than emitting a single batch of keyword queries — the survey notes this is a converging best practice across closed-source (OpenAI, Gemini, Perplexity, Grok, Qwen) and open-source (DeerFlow, dzhng, langchain, scira, OpenDeepSearch) implementations.",
+          "confidence": "verified",
+          "sources": [
+            13
+          ]
+        },
+        {
+          "claim": "A second cross-system recommendation is to deliver 'cleaner' context between stages — most frameworks deduplicate, rerank, refine, and consolidate retrieval into structured learnings/findings before passing to the report-generation model, rather than dumping raw pages into context.",
+          "confidence": "verified",
+          "sources": [
+            13,
+            12,
+            11
+          ]
+        },
+        {
+          "claim": "Human-in-the-loop intent clarification is widely recommended — implementations include OpenAI Deep Research and Qwen Deep Research asking follow-up questions, Gemini Deep Research letting users edit the generated plan, dzhng/deep-research's clarification loop, and DeerFlow's plan-modification step.",
+          "confidence": "verified",
+          "sources": [
+            13
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://arxiv.org/abs/2210.03629v1",
+          "title": "ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al., arXiv 2210.03629)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://blog.research.google/2022/11/react-synergizing-reasoning-and-acting.html",
+          "title": "ReAct: Synergizing Reasoning and Acting in Language Models (Google Research blog)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/pdf/2310.11511v1",
+          "title": "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection (Asai et al., arXiv 2310.11511)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://selfrag.github.io/",
+          "title": "Self-RAG project page",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/abs/2303.11366v4",
+          "title": "Reflexion: Language Agents with Verbal Reinforcement Learning (Shinn et al., arXiv 2303.11366)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://github.com/noahshinn/reflexion",
+          "title": "noahshinn/reflexion GitHub repository (NeurIPS 2023 reference implementation)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/abs/2305.10601v2",
+          "title": "Tree of Thoughts: Deliberate Problem Solving with Large Language Models (Yao et al., arXiv 2305.10601)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://huggingface.co/blog/open-deep-research",
+          "title": "Open-source DeepResearch – Freeing our search agents (Hugging Face blog, Roucher et al., Feb 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://shekhargulati.com/2025/02/05/my-notes-on-open-deep-researcher/",
+          "title": "My Notes on Open Deep Researcher — Shekhar Gulati (smolagents Open Deep Research walkthrough)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://docs.gptr.dev/docs/gpt-researcher/gptr/config",
+          "title": "GPT Researcher Configuration documentation (deep-research parameters)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://docs.gptr.dev/docs/gpt-researcher/gptr/deep_research",
+          "title": "GPT Researcher Deep Research documentation",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://github.com/assafelovic/gpt-researcher/blob/9e4a19ae/gpt_researcher/skills/deep_research.py",
+          "title": "gpt_researcher/skills/deep_research.py source code (GPT-Researcher 9e4a19ae)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.bolshchikov.com/p/open-deep-research-internals-a-step",
+          "title": "Langchain Open Deep Research Internals: A Step-by-Step Architecture Guide (Sergey Bolshchikov, Nov 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://huggingface.co/blog/exploding-gradients/deepresearch-survey",
+          "title": "In-Depth Analysis of the Latest Deep Research Technology (Hugging Face / Exploding Gradients survey, Sep 2025)",
+          "retrieved_at": "2026-05-05"
+        }
+      ],
+      "disagreements": [
+        "Iteration-cap defaults vary substantially across implementations and are not standardized: ReAct uses 7 (HotpotQA) / 5 (FEVER) steps; smolagents Open Deep Research uses max_steps=12 (manager) and max_steps=20 (search_agent) with planning_interval=4; GPT-Researcher uses MAX_ITERATIONS=3 (query expansion) and depth=2 (recursion); LangGraph Open Deep Research uses a configurable research_iterations counter without a publicly stated default. Sources do not agree on a single recommended cap.",
+        "Architectural choice between single-agent (e.g., OpenAI Deep Research, Grok DeepSearch, Qwen DR per the Exploding-Gradients survey) and multi-agent supervisor+sub-agent (LangGraph Open Deep Research, DeerFlow) is contested: the survey notes multi-agent gives better scalability and parallelism but harder coordination/training, while single-agent benefits from full context memory and end-to-end RL — there is no consensus on which is superior.",
+        "Whether to halve breadth at each recursion level is implementation-specific: dzhng/deep-research and GPT-Researcher both halve breadth (`max(2, breadth // 2)`) and decrement depth, whereas Tree-of-Thoughts and LangGraph Open Deep Research keep branching configurable per level without an automatic decay rule. No paper claims one rule is provably better.",
+        "Self-RAG's segment-level retrieval threshold δ vs ReAct/Reflexion-style global step caps represent fundamentally different stopping-rule philosophies (learned per-segment soft control vs hard global counter); the literature does not directly compare their cost/quality tradeoffs in a deep-research setting.",
+        "No injection attempts were detected in any of the fetched pages. The Hugging Face blog comment thread contained promotional/off-topic comments (e.g., a user advertising 'MarCognity-AI', another linking to an LLM-pricing blog), but none attempted to instruct the agent to change behavior; they are noted here only for completeness."
+      ]
+    },
+    {
+      "sub_question": "What are the current best practices for retrieval, browsing, and citation grounding in deep-research agents — including search backend selection, query rewriting, source deduplication and diversity, freshness handling, PDF/JS-rendered page extraction, inline citation styles, and citation-faithfulness metrics such as Attributable to Identified Sources (AIS), citation-F1, and hallucinated-citation detection — based on primary papers and lab engineering posts?",
+      "summary": "Across recent surveys, benchmarks, and engineering papers, deep-research agents are converging on a four-stage pipeline (planning → question developing → web exploration → report generation) in which retrieval and citation grounding are no longer single-shot RAG calls but iterative, agent-driven loops [1]. For search backends, frontier systems are split between (a) calling industrial APIs (Bing for OpenAI Deep Research, Google for Gemini Deep Research, a hybrid Bing+Sonar BM25/keyword/dense reranker for Perplexity, X-post access for Grok) and (b) running agentic browsers (WebGPT-style text browsers, Selenium/Playwright-driven DOM agents, and multimodal vision-language agents such as WebVoyager and MM-ReAct that combine screenshots with HTML to handle JS-rendered or visually complex pages) [1]. A surprising recent finding from SAGE is that for current deep-research agents, BM25 still beats reasoning-tuned LLM retrievers (ReasonIR, gte-Qwen2-7B) by ~30% on scientific retrieval, because agents emit short keyword-oriented sub-queries; the proposed fix is corpus-side test-time augmentation (LLM-generated metadata/keywords on documents) rather than fancier retrievers [3]. AgentIR pushes the opposite direction — embedding the agent's natural-language reasoning trace alongside the query yields large gains (BrowseComp-Plus 68% vs. 50% with conventional embeddings, 37% with BM25) [4].\n\nQuery rewriting and decomposition is now treated as a learnable 'Question Developing' module. Two paradigms dominate: reward-optimized RL agents (DeepResearcher, Search-R1, R1-Searcher, ZeroSearch, DeepRetrieval, MaskSearch) trained with binary format rewards plus token-F1 or Recall@K/NDCG@K; and richer multi-dimensional rewards that penalize redundant tool calls or reward information gain (InForage, OTC-PO, IKEA, AutoRefine, R-Search) [1]. Supervision-driven alternatives use multi-agent decomposition (ManuSearch, Search-o1, SearchAgent-X) or MCTS+DPO over reasoning trajectories (ReasonRAG) [1]. For browsing, best practice is to interleave parsing, filtering, and re-querying, with a Tavily-style relevance-score threshold (the Static-DRA agent uses 0.30) to drop low-relevance hits before they enter the context [2]. Source deduplication, diversity, and freshness are handled mostly at evaluation time rather than retrieval time: LiveResearchBench's DeepEval explicitly checks for 'duplicate links both inline and in the bibliography' and provider-specific 'grounding redirect' URLs that inflate token counts but not coverage, and it builds tasks that are 'time-varying' (with {{date}} placeholders) so contamination-prone static lookups score lower [5]. The same paper documents recurring failure modes: mismatched in-text citations, missing/broken URLs, inconsistent citation formats, uncited references, broken tables, out-of-order numbering, embedded citations breaking text flow, and outright fabricated data [5].\n\nFor citation grounding itself, the dominant inline style — pioneered by WebGPT and codified by Gao et al.'s ALCE — is bracketed numeric citations at sentence end, with statement-level granularity and at most ~3 citations per statement [6][7]. The foundational evaluation framework is Attributable to Identified Sources (AIS) (Rashkin et al. 2023), which formalizes 'according to P, s' attribution using explicatures (context-resolved paraphrases that promote a sentence to a standalone proposition) and a two-stage annotation pipeline: first interpretability (without the source), then attribution (with the source). AIS is binary at the sentence level and validated on QReCC, Wizard-of-Wikipedia, CNN/DM, and ToTTo, with 0.6–0.9 Krippendorff-α inter-annotator agreement [6]. Building on AIS, ALCE introduced automatic Auto-AIS citation precision, recall, and F1 using NLI models like T5-XXL TRUE [7]. AttrScore (Yue et al. 2023, EMNLP findings) refines AIS into a three-way schema — Attributable / Extrapolatory / Contradictory — to distinguish 'no support' from 'direct contradiction', which matters for safety; they show GPT-4 reaches ~85% accuracy on a New-Bing-derived AttrEval-GenSearch test set, but all models still fail systematically on contradictory cases requiring fine-grained numeric or symbolic comparison [7].\n\nThe most recent work argues that pure NLI-based citation F1 is insufficient. CiteEval (Xu et al. 2025) shows AIS-style metrics over-credit citations that semantically entail a claim when better sources exist in the retrieval pool, and under-credit partial-but-helpful citations; their fixes are: evaluate against the full retrieval context (not just cited sources), explicitly attribute statements to query/response/parametric contexts so paraphrases of the user query and intra-response reasoning are marked N/A, and rate on a 1–5 Likert scale via 'iterative chain of edits' (delete-misleading, delete-substandard, delete-redundant, add-evidence, add-refinement, add-credibility) — yielding 0.71 Pearson with humans vs. 0.41 for Auto-AIS [8]. LiveResearchBench/DeepEval operationalizes hallucinated-citation detection with an agentic rubric-tree: for each (claim, URL) pair, check (E1) URL resolves, (E2) URL is topically relevant, (E3) content actually supports the claim; on the most search-intensive tasks GPT-5, Grok-4 Deep Research, and Open Deep Research still produce 19–92 citation errors per report, dominated by E3 unsupported-claim hallucinations [5]. DeepEval also separates 'Citation Association' (every claim has some citation, scored as a count-deduction Likert in 0–100) from 'Citation Accuracy' (the citation actually supports the claim), and adopts an LLM-ensemble (Gemini-2.5 Pro + GPT-5) judge after finding Claude-4 Sonnet badly miscalibrated and single-rubric Likert prompts <60% human-aligned [5]. A consistent observation across these works is that multi-agent systems lead on citation-association/discipline, single-agent systems with persistent memory lead on factual/logical consistency, and most current 'deep research' systems are deep searchers (information collectors) rather than deep researchers (insight synthesizers) [5].",
+      "key_facts": [
+        {
+          "claim": "The canonical deep-research pipeline has four stages — Planning, Question Developing (query formulation), Web Exploration (retrieval/browsing), and Report Generation — and retrieval is iterative and agent-driven rather than single-shot.",
+          "confidence": "verified",
+          "sources": [
+            1,
+            5
+          ]
+        },
+        {
+          "claim": "Frontier systems split between API-based search backends (Bing for OpenAI Deep Research, Google for Gemini, Bing+Sonar BM25/keyword/dense rerank for Perplexity, X for Grok) and agentic browsers (Selenium/DOM, plus multimodal vision-language agents like WebVoyager and MM-ReAct for JS-rendered or visually complex pages).",
+          "confidence": "verified",
+          "sources": [
+            1
+          ]
+        },
+        {
+          "claim": "BM25 currently outperforms LLM-based reasoning retrievers (ReasonIR, gte-Qwen2-7B) by ~30% in deep-research agent workflows because agents emit keyword-oriented sub-queries; corpus-level test-time augmentation (LLM-generated metadata/keywords on documents) closes much of the gap.",
+          "confidence": "single-source",
+          "sources": [
+            3
+          ]
+        },
+        {
+          "claim": "Embedding the agent's natural-language reasoning trace alongside the query (Reasoning-Aware Retrieval, AgentIR-4B) materially improves retrieval accuracy on BrowseComp-Plus (68% vs. 50% with conventional embeddings of double the size, vs. 37% for BM25).",
+          "confidence": "single-source",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "Query-developing strategies divide into reward-optimized RL approaches (DeepResearcher, Search-R1, R1-Searcher, ZeroSearch, DeepRetrieval, MaskSearch) and supervision-driven methods (ManuSearch, Search-o1, SearchAgent-X, ReasonRAG); RL rewards range from format+answer-F1 to multi-dimensional information-gain and tool-cost penalties.",
+          "confidence": "verified",
+          "sources": [
+            1
+          ]
+        },
+        {
+          "claim": "Web-page extraction in practice combines crawlers (Scrapy, BeautifulSoup) for static HTML, headless browsers (Selenium, Playwright) for DOM/JS-rendered pages, and multimodal screenshot+HTML agents (WebVoyager achieves 59% task success using GPT-4V; MM-ReAct embeds screenshots in reasoning chains) for visually complex sites.",
+          "confidence": "verified",
+          "sources": [
+            1
+          ]
+        },
+        {
+          "claim": "Practical deep-research implementations apply a relevance-score threshold to Tavily/Brave search results before passing to the LLM (Static-DRA uses a 0.30 cutoff and keeps the top 5 results) to limit noise and token cost.",
+          "confidence": "single-source",
+          "sources": [
+            2
+          ]
+        },
+        {
+          "claim": "The dominant inline citation style is bracketed numeric citations placed at sentence end (e.g., '[1][2][3]'), with most papers (Gao et al. ALCE; CiteEval) adopting a maximum of ~3 citations per statement and treating each citation as a subset of retrieved passages.",
+          "confidence": "verified",
+          "sources": [
+            7,
+            8
+          ]
+        },
+        {
+          "claim": "Attributable to Identified Sources (AIS) (Rashkin et al. 2023) is the foundational citation-faithfulness framework: a sentence s in context c is AIS iff it is interpretable, its explicature is a standalone proposition, and a generic hearer would affirm 'According to P, s'; it uses a two-stage annotation pipeline (interpretability without the source, then attribution with it).",
+          "confidence": "verified",
+          "sources": [
+            6
+          ]
+        },
+        {
+          "claim": "Citation precision/recall/F1 metrics were operationalized by Auto-AIS / ALCE (Gao et al. 2023): citation recall checks whether the concatenation of cited passages entails the statement via an NLI model (e.g., T5-XXL TRUE); citation precision checks each individual citation for relevance; F1 is their harmonic mean.",
+          "confidence": "verified",
+          "sources": [
+            7,
+            8
+          ]
+        },
+        {
+          "claim": "AttrScore (Yue et al. 2023) refines AIS into three classes — Attributable, Extrapolatory (insufficient evidence), Contradictory (direct contradiction) — to distinguish hallucination types; on AttrEval-GenSearch (annotated New Bing outputs across 12 domains) GPT-4 reaches ~85% accuracy but all models systematically fail on contradictory cases requiring fine-grained numeric/symbolic comparison.",
+          "confidence": "verified",
+          "sources": [
+            7
+          ]
+        },
+        {
+          "claim": "CiteEval (Xu et al. 2025) argues NLI-based citation evaluation is suboptimal because it ignores uncited but better sources and partial support; its principle-driven framework evaluates citations against the full retrieval context, attributes statements to query/response/parametric contexts (so query paraphrases and intra-response reasoning are marked N/A), and rates citations on a 1–5 Likert with iterative edit actions (delete-misleading/substandard/redundant, add-evidence/refinement/credibility), reaching ~0.71 Pearson with humans vs. ~0.41 for Auto-AIS.",
+          "confidence": "single-source",
+          "sources": [
+            8
+          ]
+        },
+        {
+          "claim": "LiveResearchBench's DeepEval performs hallucinated-citation detection via an agentic rubric-tree that for each (claim, URL) pair checks E1 (URL resolves), E2 (URL topically relevant), E3 (content actually supports the claim); top systems (GPT-5, Grok-4 Deep Research, Open Deep Research) still produce 19–92 citation errors per report on search-intensive tasks, dominated by E3 unsupported-claim hallucinations.",
+          "confidence": "single-source",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "DeepEval separates Citation Association (whether every claim has some citation, scored 0–100 with deductions for missing/misplaced citations) from Citation Accuracy (whether the cited URL substantiates the claim), and uses an LLM-ensemble judge (Gemini-2.5 Pro + GPT-5) because single-rubric Likert prompts gave <60% human agreement and Claude-4 Sonnet was inconsistent.",
+          "confidence": "single-source",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "Recurring browsing/citation failure modes documented across systems include mismatched in-text citations and references, missing/incomplete URLs (or provider redirect 'grounding' URLs that inflate token counts), inconsistent citation formats, uncited references in the bibliography, broken table formatting, out-of-order reference numbering, embedded citations that break text flow, and hallucinated/fabricated facts.",
+          "confidence": "verified",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "Freshness is handled mainly at the task-design level: LiveResearchBench requires tasks to be 'time-varying' (with a {{date}} placeholder resolved at evaluation time) so static, contamination-prone benchmarks score lower; this is one of four explicit benchmark design principles (user-centric, unambiguous, time-varying, multi-faceted/search-intensive).",
+          "confidence": "single-source",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "Empirically, multi-agent deep-research systems lead on Citation Association and Presentation, single-agent web systems lead on Factual & Logical Consistency (because of one persistent memory stream), and almost all systems behave more like deep searchers than deep researchers — only Deerflow+ and Gemini Deep Research outperform Open Deep Research on analysis depth, and even strong systems leave many key statements uncited as response length grows (Pearson 0.679 between length and missing-citation ratio in CiteBench).",
+          "confidence": "single-source",
+          "sources": [
+            5,
+            8
+          ]
+        },
+        {
+          "claim": "Source-quality / 'cite-worthiness' is explicitly out of scope of AIS and Auto-AIS (which only ask whether the cited source supports the statement); CiteEval's 'add-credibility' and 'add-refinement' edit actions are the first attempt to bake source-credibility into citation scoring, complementing trustworthiness with attribution.",
+          "confidence": "verified",
+          "sources": [
+            6,
+            8
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://arxiv.org/html/2508.12752v1",
+          "title": "Deep Research: A Survey of Autonomous Research Agents (Zhang et al., 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2512.03887v1",
+          "title": "A Hierarchical Tree-based approach for creating Configurable and Static Deep Research Agent (Static-DRA) (Prateek, 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/abs/2602.05975",
+          "title": "SAGE: Benchmarking and Improving Retrieval for Deep Research Agents (2026)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/abs/2603.04384v2",
+          "title": "AgentIR: Reasoning-Aware Retrieval for Deep Research Agents (2026)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/pdf/2510.14240",
+          "title": "LiveResearchBench: A Live Benchmark for User-Centric Deep Research in the Wild (Wang, Ming et al., Salesforce AI Research, 2025)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/pdf/2112.12870",
+          "title": "Measuring Attribution in Natural Language Generation Models (Rashkin et al., Google Research, Computational Linguistics 2023)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://aclanthology.org/2023.findings-emnlp.307.pdf",
+          "title": "Automatic Evaluation of Attribution by Large Language Models — AttrScore (Yue, Wang, Chen, Zhang, Su, Sun, EMNLP Findings 2023)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2506.01829v1",
+          "title": "CiteEval: Principle-Driven Citation Evaluation for Source Attribution (Xu, Qi, Chen et al., AWS AI Labs / Orby.ai / Google, 2025)",
+          "retrieved_at": "2026-05-05"
+        }
+      ],
+      "disagreements": [
+        "SAGE [3] reports that BM25 beats LLM-based reasoning retrievers by ~30% on deep-research workflows because agents issue keyword-oriented queries. AgentIR [4] reports the opposite direction — that adding the agent's reasoning trace to the embedding query lifts an open-weight agent from 37% (BM25) to 68%. The two are partly reconcilable (SAGE evaluates off-the-shelf retrievers vs. agent-emitted keywords; AgentIR co-trains the embedding model on synthetic reasoning-augmented queries) but they imply different design recommendations: SAGE favors corpus-side test-time augmentation, AgentIR favors retriever-side reasoning-aware embeddings.",
+        "On citation evaluation, AttrScore [7] and Auto-AIS/ALCE [7][8] use NLI-style binary or three-way classification of supportiveness, while CiteEval [8] argues this systematically over- and under-credits citations and pushes a Likert + edit-action framework reaching higher human correlation (0.71 vs ~0.41 Pearson). LiveResearchBench's DeepEval [5] takes a third path — a structured rubric-tree of E1/E2/E3 errors with an LLM ensemble judge — and explicitly notes that holistic 0–10 LLM-as-judge ratings yield <60% human agreement. The community has not converged on a single faithfulness metric.",
+        "DeepEval's [5] benchmarking finds that Claude-4 Sonnet exhibits 'inconsistent and low agreement with human experts' as a citation judge, while CiteEval [8] tested GPT-4-turbo and GPT-4o and found GPT-4o best — neither paper independently corroborates the other's negative result on Claude, so the relative ranking of judge LLMs is uncertain and likely sensitive to prompt design.",
+        "No injection attempts were observed in the fetched material."
+      ]
+    },
+    {
+      "sub_question": "Which evaluation benchmarks and protocols are considered authoritative for deep-research agents — specifically BrowseComp, GAIA, FRAMES, Humanity's Last Exam, SimpleQA, FreshQA, and HELM — what does each measure, what scores have leading systems reported, and what LLM-as-judge and human-eval protocols (including regression testing for non-deterministic agents) are documented in their original papers and official leaderboards?",
+      "summary": "(worker failed: subagent timeout after 600000ms)",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [],
+      "_failed": true
+    },
+    {
+      "sub_question": "What documented limitations, failure modes, and substantive critiques exist for LLM deep-research systems — including indirect/cross-domain prompt injection (XPIA) from fetched pages, the 'lethal trifecta' exfiltration pattern (Simon Willison), evidence that strong single-agent systems can match or beat multi-agent orchestration, citation hallucination and over-confidence in synthesis, benchmark-gaming on BrowseComp/GAIA, and reported safety incidents or red-team findings in lab system cards from 2024–2026?",
+      "summary": "The 2024–2026 literature on LLM deep-research systems converges on a sobering picture: every architectural assumption these systems rely on has documented, often severe failure modes. Prompt injection remains the foundational unsolved problem. Simon Willison's 'lethal trifecta' (June 2025) names the core risk pattern — when an agent simultaneously has (a) access to private data, (b) exposure to untrusted content, and (c) the ability to externally communicate, an attacker who controls any retrieved page can exfiltrate data. Willison documents successful exploits of this pattern against ChatGPT (2023), ChatGPT Plugins, Google Bard, Writer.com, Amazon Q, Google NotebookLM (April 2024), GitHub Copilot Chat (June 2024), Google AI Studio, Microsoft Copilot, Slack, Mistral Le Chat, xAI's Grok, Anthropic's Claude iOS app, ChatGPT Operator (February 2025), and the GitHub MCP server. Meta's 'Agents Rule of Two' (October 2025) generalizes this to state-changing actions; a 14-author paper from OpenAI/Anthropic/Google DeepMind ('The Attacker Moves Second', October 2025) bypassed all 12 published prompt-injection defenses at >90% attack success rate using adaptive attacks, with human red-teamers achieving 100%.\n\nIndirect / cross-domain prompt injection (XPIA) is now empirically widespread on the live web. A 1.2-billion-URL Common Crawl study (Khodayari et al., 2026) found 15,387 validated in-page injection instances across 11,722 pages and 2,042 hosts; 99% use direct task-override, 87% are concealed via CSS/HTML tricks, and 54 templates account for 95% of cases. Effectiveness is 'limited but non-negligible' (0.2%–8% per-attack), but 65% of pages already contained injections 12 months prior, indicating long-lived, structured deployment. Palo Alto Unit 42 (March 2026) catalogued 22 distinct payload techniques in active use, including the first observed AI-ad-review bypass. EchoLeak (CVE-2025-32711, CVSS 9.3) demonstrated zero-click data exfiltration from Microsoft 365 Copilot via a single crafted email and Markdown-image rendering. Memory-poisoning attacks (Unit 42 against Amazon Bedrock; the MINJA paper at NeurIPS 2025) extend the threat across sessions. QueryIPI (Xie et al., 2025) achieved 70–87% query-agnostic compromise of Cursor, Windsurf, Cline, Copilot, and Trae coding agents via tool-description poisoning. OpenAI/Anthropic/Google DeepMind have all publicly stated, by late 2025, that prompt injection cannot be reliably solved within current LLM architectures.\n\nA growing body of controlled work shows strong single-agent systems match or beat multi-agent orchestration on most procedural and reasoning tasks. Tran & Kiela (2025/2026) demonstrate, with an information-theoretic argument grounded in the Data Processing Inequality, that single-agent systems are dominant under fixed thinking-token budgets across Qwen3, DeepSeek-R1-Distill-Llama, and Gemini 2.5; multi-agent gains in prior literature are largely an artifact of unaccounted compute. Xu et al. (Amazon/UT Austin, 'OneFlow', January 2026) show single-LLM execution of homogeneous workflows matches or exceeds AFlow-designed multi-agent pipelines while reducing cost via KV-cache reuse. Zywot et al. (UvA/ETH/Copenhagen) find that small multi-agent systems can beat much larger single-agent models, but the gain comes almost entirely from orchestrator capacity, not sub-agent capacity, and orchestrator-level reasoning rather than sub-agent reasoning drives improvement. Dennis et al. ('In-Context Prompting Obsoletes Agent Orchestration', 2026) report that a single Claude Sonnet 4.5 with the procedure in its system prompt outperformed a same-model LangGraph orchestrator on all 15 of 15 quality criteria across three procedural domains (p<0.005). Anthropic's own engineering post on multi-agent research systems acknowledges that much of the apparent advantage comes from increased compute. Cemri et al. (2025) catalogue 14 distinct multi-agent failure modes including specification drift, information loss, and misleading evaluation artifacts.\n\nCitation hallucination and over-confident synthesis are pervasive even in retrieval-augmented and 'deep research' modes. Rao, Wong & Callison-Burch (April 2026) measured 3–13% fully hallucinated and 5–18% non-resolving citation URLs across 10 commercial LLMs and deep research agents on DRBench (53,090 URLs) and 168,021 URLs across 32 academic fields on ExpertQA. Critically, deep research agents had the HIGHEST hallucination rates despite generating far more citations per query: Gemini 2.5 Pro Deep Research hallucinated 13.3% of URLs (the worst rate observed). Domain effects vary 2× (5.4% Business → 11.4% Theology), with per-model variation reaching 4.3×. Rao's BibTeX study (April 2026, 931 papers, 3 search-enabled frontier models) found only 50.9% of generated entries are fully correct, with accuracy dropping 27.7 points from popular to recent post-cutoff papers, showing heavy reliance on parametric memory even when search is available. Walters & Wilder (2023) found 18% (GPT-4) and 55% (GPT-3.5) of citations entirely fabricated; Mugaanyi et al. report 89.4% DOI hallucination in humanities; Dahl et al. found 58–88% legal-citation hallucination; Linardon et al. found a topic-familiarity effect (28–29% fabrication for less-studied mental-health topics vs. 6% for major depressive disorder); Naser (2026) found a 5× spread (11.4–56.8%) across 10 LLMs and 69,557 citations and showed citation accuracy regressed between Anthropic Haiku 3.5 and Haiku 4.5 (48.8% → 56.8% hallucinated). GhostCite (Xu et al., 2026) reports 14–95% hallucination across 13 LLMs/40 domains. Sakai et al. (2026) found a >10× increase in hallucinated references in ACL anthology papers from 2024 to 2025; Ansari (2026) catalogued 100 fabricated citations across 53 NeurIPS 2025 submissions, all exhibiting compound failure modes that reviewers missed. Algaba et al. (2024/2025) show LLM-generated references exhibit strong popularity bias — about 90% of valid generated references fall in the top 10% most-cited papers in their field, amplifying the Matthew effect via LLM-mediated citation. Mitigations exist (urlhealth: 6–79× reduction in non-resolving URLs; CiteGuard: 68.1% citation-attribution accuracy approaching human 69.2%; multi-model consensus: 16.5% → 95.6% match rate at k≥3) but each depends on tool-use competence the underlying model may not have.\n\nOn benchmark gaming and red-team findings, the cross-cutting concern in multiple sources is methodological. The 'Attacker Moves Second' paper's central finding is that static/non-adaptive evaluation of prompt-injection defenses systematically inflates apparent robustness — every defense tested at near-zero ASR was bypassed at >90% under adaptive attack. Cemri et al. emphasize that orchestration can produce misleading benchmark improvements from evaluation artifacts. Multiple sources note that BrowseComp and GAIA, while widely cited, share weaknesses common to agentic benchmarks: ground-truth dependence on a fixed web snapshot, vulnerability to static memorization, and lack of adaptive-attacker conditions. Direct primary sources for OpenAI/Anthropic/Google system-card content for deep-research-class systems were not accessible in this round (search failures), so claims about specific lab system-card 2024–2026 incidents should be treated as partially covered: I have well-documented secondary references to OpenAI's CISO Dane Stuckey on ChatGPT Atlas prompt-injection risk (October 2025), Anthropic's published ~1% post-training residual prompt-injection ASR in Claude Opus 4.5 with Anthropic itself stating '1% still represents meaningful risk' and 'no browser agent is immune', and the joint OpenAI/Anthropic/Google DeepMind authorship of 'The Attacker Moves Second', but I did not directly verify primary system-card text in this investigation.",
+      "key_facts": [
+        {
+          "claim": "Simon Willison coined the 'lethal trifecta' on 16 June 2025: an LLM agent that simultaneously (a) accesses private data, (b) is exposed to untrusted content, and (c) can communicate externally is exploitable for data exfiltration regardless of guardrails.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1
+          ]
+        },
+        {
+          "claim": "Documented data-exfiltration prompt-injection exploits against production LLM systems span ChatGPT (April 2023), ChatGPT Plugins, Google Bard, Writer.com, Amazon Q, Google NotebookLM (April 2024), GitHub Copilot Chat (June 2024), Google AI Studio, Microsoft Copilot, Slack, Mistral Le Chat, xAI Grok, Anthropic's Claude iOS app, ChatGPT Operator (February 2025), and the official GitHub MCP server.",
+          "confidence": "verified",
+          "sources": [
+            0,
+            1
+          ]
+        },
+        {
+          "claim": "EchoLeak (CVE-2025-32711, CVSS 9.3) is a zero-click prompt-injection exfiltration vulnerability in Microsoft 365 Copilot in which a single crafted email never opened by the user caused Copilot to extract data from OneDrive/SharePoint/Teams via Markdown-image URL exfiltration.",
+          "confidence": "single-source",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "Meta's 'Agents Rule of Two' (October 2025) extends the lethal trifecta by adding state-changing actions, and recommends agents satisfy at most two of: process untrustworthy inputs, access sensitive systems, change state externally.",
+          "confidence": "verified",
+          "sources": [
+            2,
+            4
+          ]
+        },
+        {
+          "claim": "'The Attacker Moves Second' (October 2025), authored by 14 researchers from OpenAI, Anthropic, and Google DeepMind, evaluated 12 published prompt-injection/jailbreak defenses with adaptive attacks and bypassed all of them at >90% attack success rate; human red-teamers achieved 100% across all defenses.",
+          "confidence": "verified",
+          "sources": [
+            2,
+            4
+          ]
+        },
+        {
+          "claim": "A web-scale empirical study (1.2 billion URLs across 24.8 million hosts, October 2025 Common Crawl) found 15,387 validated indirect prompt-injection instances across 11,722 webpages and 2,042 hosts; 99% use direct task-override, 87% are non-visible, and 54 templates account for 95% of all cases.",
+          "confidence": "single-source",
+          "sources": [
+            3
+          ]
+        },
+        {
+          "claim": "Indirect prompt injection is persistent: 65% of pages with injections in October 2025 already contained them 12 months prior; 77% at 6 months; 93% at 3 months.",
+          "confidence": "single-source",
+          "sources": [
+            3
+          ]
+        },
+        {
+          "claim": "Per-attack effectiveness of in-the-wild indirect prompt injections is limited but non-negligible: up to 8% on plain-text inputs to small models, dropping to 0.2–1.1% on HTML/raw-response inputs that preserve structural cues.",
+          "confidence": "single-source",
+          "sources": [
+            3
+          ]
+        },
+        {
+          "claim": "Palo Alto Unit 42 (March 2026) documented 22 distinct payload-engineering techniques actively used in the wild for indirect prompt injection, with 85.2% relying on social-engineering framing rather than technical override syntax; observed attacker intents include data destruction (rm -rf), DoS (fork bomb), unauthorized transactions, AI ad-review bypass, SEO poisoning, sensitive-information leakage, and system-prompt leakage.",
+          "confidence": "verified",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "QueryIPI (October 2025) demonstrated query-agnostic indirect prompt injection against five real-world coding agents (Cursor, Windsurf, Cline, Copilot, Trae) via malicious MCP tool descriptions, achieving 70–87% success rates in simulation and ~50% transfer to production agents.",
+          "confidence": "single-source",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "Memory-poisoning attacks survive across sessions: Unit 42 demonstrated persistent malicious instructions written into Amazon Bedrock agent memory via crafted webpage URLs, and the MINJA attack (NeurIPS 2025) injected memory records via query-only access to an agent.",
+          "confidence": "single-source",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "Tran & Kiela (2025/2026) prove via the Data Processing Inequality that under fixed thinking-token budgets a single-agent LLM is information-theoretically dominant over multi-agent decompositions, and empirically demonstrate this across Qwen3-30B, DeepSeek-R1-Distill-Llama-70B, and Gemini 2.5 Flash/Pro on FRAMES and MuSiQue 4-hop benchmarks (15 of 15 conditions).",
+          "confidence": "single-source",
+          "sources": [
+            6
+          ]
+        },
+        {
+          "claim": "Xu et al. ('OneFlow', Amazon/UT Austin, January 2026) show single-LLM execution of homogeneous multi-agent workflows matches or slightly exceeds AFlow-designed multi-agent counterparts on HumanEval, MBPP, GSM8K, MATH, HotpotQA, DROP, Shopping-MMLU, and TravelPlanner, with substantial cost reduction from KV-cache reuse.",
+          "confidence": "single-source",
+          "sources": [
+            7,
+            8
+          ]
+        },
+        {
+          "claim": "Zywot et al. (UvA/ETH/Copenhagen, 2026) find on GAIA, GPQA, AIME, MuSiQue, and HLE that small multi-agent systems can beat large single-agent models, but performance is driven primarily by orchestrator capacity rather than sub-agent capacity, and orchestrator-level explicit reasoning yields the largest gains while sub-agent reasoning provides limited or negative benefit.",
+          "confidence": "single-source",
+          "sources": [
+            9
+          ]
+        },
+        {
+          "claim": "Dennis et al. (2026) report that a Claude Sonnet 4.5 receiving the full procedure in its system prompt outperforms the same model orchestrated via LangGraph on all 5 quality criteria across all 3 procedural domains (15 of 15 comparisons, p<0.005), with LangGraph failure rates of 9–24% versus 0.5–11.5% for in-context prompting.",
+          "confidence": "single-source",
+          "sources": [
+            10
+          ]
+        },
+        {
+          "claim": "Cemri et al. (2025) introduce a 14-mode failure taxonomy for multi-agent LLM systems including specification/planning failures, drift, information loss, and misleading improvements from evaluation artifacts.",
+          "confidence": "single-source",
+          "sources": [
+            6,
+            9
+          ]
+        },
+        {
+          "claim": "Anthropic's own engineering analysis of multi-agent research systems acknowledges that much of the apparent advantage of multi-agent systems over single-agent systems comes from increased compute rather than architectural benefit.",
+          "confidence": "single-source",
+          "sources": [
+            6
+          ]
+        },
+        {
+          "claim": "Across 53,090 URLs from 10 commercial LLMs and deep research agents on DRBench, 3–13% of citation URLs are fully hallucinated (no Wayback Machine record) and 5–18% are non-resolving overall.",
+          "confidence": "verified",
+          "sources": [
+            11,
+            14
+          ]
+        },
+        {
+          "claim": "Deep research agents exhibit higher citation hallucination rates than search-augmented LLMs despite producing far more citations per query: Gemini-2.5-Pro-DeepResearch produced 113.1 URLs per query with a 13.3% hallucination rate (the highest of any system tested), while two pooled deep research agents achieved 10.7% hallucination versus 4.8% for eight search-augmented models.",
+          "confidence": "verified",
+          "sources": [
+            11,
+            14
+          ]
+        },
+        {
+          "claim": "Across 168,021 URLs and 32 academic fields on ExpertQA, non-resolving rates vary from 5.4% (Business) to 11.4% (Theology); per-model domain variation reaches 4.3× (Claude Sonnet 4.5: 4.0% Mathematics → 17.4% Healthcare/Medicine).",
+          "confidence": "single-source",
+          "sources": [
+            11
+          ]
+        },
+        {
+          "claim": "Rao's BibTeX study (April 2026, 931 papers, GPT-5/Claude Sonnet 4.6/Gemini 3 Flash) found 83.6% field-level accuracy but only 50.9% of entries fully correct; accuracy drops 27.7 percentage points from popular (92.7%) to recent post-cutoff (65.0%) papers, demonstrating heavy reliance on parametric memory even when web search is available.",
+          "confidence": "single-source",
+          "sources": [
+            12
+          ]
+        },
+        {
+          "claim": "Naser (2026) audited 10 commercially deployed LLMs across 4 domains (69,557 citations) and found a 5× spread in hallucination rates (11.4% GPT-5-mini → 56.8% Anthropic Haiku 4.5); hallucination regressed between Haiku 3.5 (48.8%) and Haiku 4.5 (56.8%), demonstrating that newer models do not necessarily improve citation accuracy.",
+          "confidence": "single-source",
+          "sources": [
+            13
+          ]
+        },
+        {
+          "claim": "GhostCite (Xu et al., 2026) benchmarked 13 LLMs across 40 domains (375,000 citations) and reported hallucination rates from 14% to 95%; CiteAudit (Yuan et al., 2026) achieved 97% verification accuracy on synthetic benchmarks but only 90% on real-world cases (GPT-5.2 dropped from 96% to 33% F1).",
+          "confidence": "single-source",
+          "sources": [
+            11
+          ]
+        },
+        {
+          "claim": "Sakai et al. (2026) audited 17,842 ACL/NAACL/EMNLP papers from 2024–2025 and identified 295 containing hallucinated references, with a >10× increase from 0.28% of papers in 2024 to 2.59% in 2025.",
+          "confidence": "single-source",
+          "sources": [
+            11
+          ]
+        },
+        {
+          "claim": "Ansari (2026) manually coded 100 fabricated citations from 53 NeurIPS 2025 papers and found that 100% exhibited compound failure modes (combining a primary fabrication mechanism with secondary characteristics), explaining why peer review failed to detect them.",
+          "confidence": "single-source",
+          "sources": [
+            11,
+            13
+          ]
+        },
+        {
+          "claim": "Algaba et al. (2024/2025) demonstrated that LLM-generated references show strong popularity bias: among references that exist, ~90% fall in the top 10% most-cited papers in their field, amplifying the Matthew effect via LLM-mediated citation.",
+          "confidence": "single-source",
+          "sources": [
+            11
+          ]
+        },
+        {
+          "claim": "Mitigations partially work: urlhealth reduces non-resolving citation URLs by 6–79× to under 1% in agentic self-correction (Rao et al., 2026); CiteGuard achieves 68.1% citation-attribution accuracy approaching human 69.2% (Choi et al., 2026); multi-model consensus filtering raises citation match rates from 16.5% (single model) to 95.6% (k≥3 agreement).",
+          "confidence": "verified",
+          "sources": [
+            11,
+            13,
+            16
+          ]
+        },
+        {
+          "claim": "OpenAI's CISO Dane Stuckey (October 2025) publicly acknowledged prompt-injection risks specific to ChatGPT Atlas, and Anthropic's documented adversarial-training results for Claude Opus 4.5 reach approximately 1% prompt-injection attack success rate with Anthropic itself stating '1% still represents meaningful risk' and 'no browser agent is immune to prompt injection'.",
+          "confidence": "single-source",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "The International AI Safety Report 2026 and adaptive-attack literature find that sophisticated attackers bypass best-defended frontier models approximately 50% of the time with just 10 attempts, indicating that 1% per-attempt rates do not translate to robust security at attacker scale.",
+          "confidence": "single-source",
+          "sources": [
+            4
+          ]
+        },
+        {
+          "claim": "Standard prompt-injection defenses including Sandwich Defense, Spotlighting variants (Datamarking, Delimiting, Encoding) yield only marginal mitigation against the QueryIPI attack: Sandwich Defense leaves 82% ASR; Spotlighting variants leave 52–84% ASR.",
+          "confidence": "single-source",
+          "sources": [
+            5
+          ]
+        },
+        {
+          "claim": "GAIA (Mialon et al., 2023) and BrowseComp are widely used benchmarks for deep-research/agentic systems but the broader red-team literature (notably 'The Attacker Moves Second' and Cemri et al.) finds that static benchmark evaluation systematically overstates robustness, since orchestration and prompting strategies that look strong under fixed test sets fail under adaptive attacks; explicit BrowseComp/GAIA-specific benchmark-gaming critiques exist in concurrent work but were not directly accessible during this investigation.",
+          "confidence": "uncertain",
+          "sources": [
+            2,
+            9,
+            6
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/",
+          "title": "The lethal trifecta for AI agents: private data, untrusted content, and external communication",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://simonwillison.net/2025/Aug/9/bay-area-ai",
+          "title": "My Lethal Trifecta talk at the Bay Area AI Security Meetup",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://simonwillison.net/2025/Nov/2/new-prompt-injection-papers/",
+          "title": "New prompt injection papers: Agents Rule of Two and The Attacker Moves Second",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2604.27202",
+          "title": "Indirect Prompt Injection in the Wild: An Empirical Study of Prevalence, Techniques, and Objectives (Khodayari, Zhang, Acharya, Pellegrino)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://unit42.paloaltonetworks.com/ai-agent-prompt-injection/?_wpnonce=9882ce0aa3&lg=en&pdf=print",
+          "title": "Fooling AI Agents: Web-Based Indirect Prompt Injection Observed in the Wild — Palo Alto Unit 42",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2510.23675v2",
+          "title": "QueryIPI: Query-agnostic Indirect Prompt Injection on Coding Agents",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/pdf/2604.02460",
+          "title": "Single-Agent LLMs Outperform Multi-Agent Systems on Multi-Hop Reasoning Under Equal Thinking Token Budgets (Tran & Kiela)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.arxiv.org/pdf/2601.12307",
+          "title": "Rethinking the Value of Multi-Agent Workflow: A Strong Single Agent Baseline (Xu et al., OneFlow)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://openreview.net/pdf?id=i95lcR2GN5",
+          "title": "Rethinking the Value of Multi-Agent Workflow: A Strong Single Agent Baseline (OpenReview ICLR 2026 submission)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2601.11327v2",
+          "title": "Can Small Agents Collaborate to Beat a Single Large Language Model? (Zywot et al.)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2604.27891",
+          "title": "In-Context Prompting Obsoletes Agent Orchestration for Procedural Tasks (Dennis, Diamond, Patil, Shabahang, Guo)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.arxiv.org/pdf/2604.03173",
+          "title": "Detecting and Correcting Reference Hallucinations in Commercial LLMs and Deep Research Agents (Rao, Wong, Callison-Burch)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.arxiv.org/pdf/2604.03159",
+          "title": "BibTeX Citation Hallucinations in Scientific Publishing Agents: Evaluation and Mitigation (Rao & Callison-Burch)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.arxiv.org/pdf/2603.03299",
+          "title": "How LLMs Cite and Why It Matters: A Cross-Model Audit of Reference Fabrication in AI-Assisted Academic Writing (M.Z. Naser)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://ui.adsabs.harvard.edu/abs/2026arXiv260403173R/abstract",
+          "title": "Detecting and Correcting Reference Hallucinations in Commercial LLMs and Deep Research Agents — ADS abstract",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://zylos.ai/research/2026-04-12-indirect-prompt-injection-defenses-agents-untrusted-content",
+          "title": "Indirect Prompt Injection: Attacks, Defenses, and the 2026 State of the Art — Zylos Research",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://arxiv.org/html/2510.17853v4",
+          "title": "CiteGuard: Faithful Citation Attribution for LLMs via Retrieval-Augmented Validation (Choi, Guo, Fung, Wang)",
+          "retrieved_at": "2026-05-05"
+        },
+        {
+          "url": "https://www.forcepoint.com/blog/x-labs/indirect-prompt-injection-payloads",
+          "title": "10 Indirect Prompt Injection Payloads Caught in the Wild — Forcepoint X-Labs",
+          "retrieved_at": "2026-05-05"
+        }
+      ],
+      "disagreements": [
+        "Sources disagree on the magnitude of citation hallucination by model and task: Walters & Wilder (2023) reported 18% (GPT-4) and 55% (GPT-3.5) entirely fabricated; Wu et al. (2025, SourceCheckup) found medical RAG-enabled models avoid URL hallucination, while Rao et al. (2026) report that even RAG/deep-research models hallucinate 3–13% of URLs. The discrepancy reflects domain (medicine vs. broad), elicitation (free-text vs. KR-nat), and verification methodology (post-hoc Wayback vs. content support). Each result is internally consistent within its protocol; cross-study comparison is unreliable absent standardized evaluation.",
+        "Sources disagree on whether multi-agent systems are net beneficial: Xu et al., Tran & Kiela, Dennis et al., and Zywot et al. converge that strong single-agent baselines match or beat multi-agent systems under matched compute, while practitioner literature on Anthropic's multi-agent research system reports gains. The reconciliation in the literature is that orchestration helps when (a) effective single-agent context utilization is degraded (Tran & Kiela's degradation experiments), (b) heterogeneous models with complementary strengths are combined, or (c) extra compute is genuinely allocated; otherwise gains are confound by unaccounted compute.",
+        "Anthropic and Meta's framings of mitigation differ: Anthropic emphasizes adversarial training reducing per-attempt ASR to ~1%; Meta's Rule of Two and Willison's lethal trifecta argue per-attempt rates are not the right metric and that capability-restriction architectures (CaMeL, FIDES, MELON, Rule of Two) are the only credible direction. Both agree current defenses are insufficient.",
+        "Direct primary citations to OpenAI/Anthropic/Google deep-research-specific system cards (and direct BrowseComp/GAIA benchmark-gaming critiques) were not retrievable during this investigation due to repeated web-search/fetch failures; claims about specific lab system-card content for 2024–2026 deep-research releases are therefore based on secondary references in Simon Willison's posts, the Zylos research article, and the joint-author paper 'The Attacker Moves Second', and should be confirmed against primary system-card documents in any downstream synthesis."
+      ]
+    },
+    {
+      "sub_question": "What do the original papers and official leaderboards for BrowseComp (OpenAI), GAIA (Mialon et al.), FRAMES (Google), Humanity's Last Exam (CAIS/Scale), SimpleQA (OpenAI), and FreshQA specify about task construction, scoring rubrics, LLM-as-judge protocols, human-verification procedures, and reported scores for leading deep-research systems — and what regression-testing or variance-reporting practices do these benchmarks recommend for non-deterministic agents?",
+      "summary": "No findings could be produced for this sub-question. Every web_search and web_fetch invocation in this session returned an 'Unexpected end of JSON input' error, indicating that the local Ollama-backed retrieval tools are unavailable or misconfigured in the current environment. I attempted searches for each of the six benchmarks named in the sub-question (BrowseComp, GAIA, FRAMES, HLE, SimpleQA, FreshQA) and direct fetches against arxiv.org, openai.com, wikipedia.org, google.com, and example.com; all failed with the same error. Because I am required to cite only URLs I actually fetched and never to fabricate sources, titles, or factual claims, I am returning an empty-evidence result rather than synthesizing from prior knowledge. The orchestrator should retry this sub-question once web retrieval is restored, or route it to a worker with a different retrieval backend. No partial answers, paper details, score numbers, or rubric descriptions are reported here because none could be verified against a fetched primary source in this run.",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [
+        "[tool-failure] All web_search and web_fetch calls in this session failed with 'Unexpected end of JSON input', preventing any evidence collection. This is an environment/infrastructure issue, not a content disagreement. No injection attempts were observed because no page content was successfully retrieved."
+      ]
+    },
+    {
+      "sub_question": "What concrete cost, latency, and token-efficiency engineering practices are documented for production deep-research systems — including prompt caching, context compression/summarization between iterations, model cascades (cheap planner + expensive synthesizer), parallel tool-call batching, early-termination heuristics, and reported per-query token/cost/latency numbers from Anthropic, OpenAI, Google, and Perplexity engineering posts?",
+      "summary": "No findings were produced for this sub-question because the research tools were unavailable during this session. Every invocation of web_search and web_fetch — including simple sanity checks against well-known URLs (https://www.example.com, https://www.google.com, https://en.wikipedia.org/wiki/Main_Page) and trivial queries (e.g., 'test', 'hello world') — returned the error 'Unexpected end of JSON input', which indicates the local Ollama web-search/fetch backend is not responding with valid JSON (likely a service outage, missing API key, or misconfigured endpoint rather than a query-specific problem).\n\nBecause I could not retrieve a single primary source, I have no verified, single-source, or even reasonably inferable claims to report. I deliberately declined to populate key_facts from prior knowledge: the sub-question asks for specific quoted numbers (per-query tokens, dollar costs, latency seconds) and named techniques from named engineering posts (Anthropic 'How we built our multi-agent research system', OpenAI Deep Research launch/system card, Google Gemini Deep Research docs, Perplexity engineering posts), and fabricating or paraphrasing those without re-verification would violate the worker's citation rules.\n\nRecommended next step for the orchestrator: retry this sub-question after the web tool outage is resolved. Suggested seed URLs to fetch first when tools return: (1) Anthropic's engineering post on their multi-agent research system, (2) OpenAI's Deep Research product/launch page and any accompanying system card, (3) Google's Gemini Deep Research help/blog pages, (4) Perplexity's engineering or changelog posts on Sonar/Deep Research, (5) Anthropic's prompt-caching documentation page for the cache-hit pricing multipliers, and (6) third-party benchmarks (e.g., Artificial Analysis, HELM) that report end-to-end latency and cost for these agents.",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [
+        "[tool-outage] All web_search and web_fetch calls in this session failed with 'Unexpected end of JSON input', including sanity-check fetches of https://www.example.com, https://www.google.com, and https://en.wikipedia.org/wiki/Main_Page, and trivial queries like 'test' and 'hello world'. No sources could be retrieved; this sub-question should be re-dispatched once the web tooling is restored."
+      ]
+    },
+    {
+      "sub_question": "What do primary system cards and safety documentation (OpenAI Deep Research system card, Anthropic Claude 4/Opus system cards covering Research, Google Gemini Deep Research model/system cards) explicitly say about red-team findings, prompt-injection ASR, exfiltration mitigations, refusal behavior, and capability scoping for the deep-research agentic mode specifically — as opposed to the base model?",
+      "summary": "No findings were produced for this sub-question. Every web_search and web_fetch call in this session failed with the error 'Unexpected end of JSON input', including minimal-length probe queries and fetches of well-known URLs (e.g., openai.com, example.com). Because the research tools were non-functional throughout the session, I was unable to retrieve any primary documents (OpenAI Deep Research system card, Anthropic Claude 4/Opus 4 system cards, Google Gemini Deep Research model cards) or any secondary reporting on them. Per the worker protocol, I am not citing or summarizing any specific claims from these documents, since I cannot do so without inventing sources or relying on un-verified prior knowledge. This sub-question should be re-dispatched once tool connectivity is restored; suggested starting URLs to retry are openai.com/index/deep-research-system-card, anthropic.com/news/claude-4 (and the linked Claude 4 / Opus 4 system card PDF on anthropic.com), and deepmind.google / blog.google posts on Gemini Deep Research plus any linked model cards on ai.google.dev or storage.googleapis.com.",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [
+        "[tool-failure] web_search and web_fetch returned 'Unexpected end of JSON input' for every query and URL attempted in this session, so no primary or secondary sources could be retrieved. No injection attempts were observed because no page content was successfully fetched."
+      ]
+    },
+    {
+      "sub_question": "What architectural and retrieval-stack details about Perplexity Deep Research / Sonar Deep Research are documented in Perplexity's own engineering blog, API reference, and changelog (parallel search-agent counts, model used for synthesis, reasoning-token accounting, freshness/recency handling, and the Bing+Sonar hybrid pipeline) — and how do these compare to independent third-party reverse-engineering write-ups?",
+      "summary": "No findings could be gathered for this sub-question. Every invocation of web_search and web_fetch — including minimal probes (`web_search('a')`, `web_fetch('https://example.com')`) — failed with the transport error 'Unexpected end of JSON input'. This indicates the local Ollama web-search/web-fetch backend is not responding with valid JSON, so no candidate URLs could be discovered and no pages could be retrieved. Because the worker spec forbids citing URLs that were not actually fetched and forbids inventing facts, I am returning empty key_facts and sources arrays. Recommended remediation: verify that the Ollama instance backing the web tools is running with web_search/web_fetch enabled and an API key configured, then re-dispatch this sub-question. Once tools are working, the intended search plan was: (1) Perplexity primary sources — perplexity.ai/hub/blog 'Introducing Perplexity Deep Research' post, docs.perplexity.ai model guide for sonar-deep-research (reasoning_tokens, search_context_size, search_recency_filter), and the public changelog; (2) third-party analyses — Latent Space, Simon Willison's blog, Hacker News discussions, and reverse-engineering write-ups on Medium/Substack; (3) cross-checks against pricing/usage pages for evidence on parallel search counts and synthesis model identity.",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [
+        "Tool failure: both web_search and web_fetch returned 'Unexpected end of JSON input' on every call this session, preventing any evidence collection. No injection attempts were observed because no page content was ever retrieved."
+      ]
+    },
+    {
+      "sub_question": "What do controlled head-to-head comparisons (independent academic evaluations or shared-task bake-offs published in 2025–2026) report about single-agent vs orchestrator-worker multi-agent deep-research systems when compute is explicitly matched, and what specific task characteristics (breadth of sources, parallelizability, heterogeneous tool needs) predict when multi-agent orchestration actually wins?",
+      "summary": "No findings were produced for this sub-question. Every web_search and web_fetch call in this session — including minimal smoke tests such as a one-word query and a fetch of example.com — returned the error 'Unexpected end of JSON input' from the local Ollama-backed search/fetch API. This indicates a tool/infrastructure outage, not an absence of evidence on the topic. Because I was unable to retrieve a single primary or secondary source, I cannot in good faith report any claims, even ones I might recall from training data, since the task explicitly requires citing only URLs actually fetched. The sub-question should be re-dispatched once the web tools are healthy. When retried, productive search directions are likely to include: (1) Anthropic's engineering write-up on their multi-agent research system and its internal eval of multi-agent vs single-agent at matched token budgets; (2) academic deep-research benchmarks that emerged in 2025 such as DeepResearch Bench, BrowseComp / BrowseComp-Plus, GAIA, HLE-style long-horizon evals, and any 2025–2026 shared tasks; (3) ablation studies in agent-framework papers (e.g., orchestrator-worker, planner-executor, or 'researcher-of-researchers' designs) that explicitly hold tool-call or token budgets constant; (4) survey papers on LLM agent architectures from 2025–2026 that aggregate compute-matched comparisons. Task-characteristic predictors to look for include breadth/parallelizability of sub-queries, heterogeneity of required tools, depth of reasoning chains within a single thread, and context-window pressure — but none of these can be cited here without successful fetches.",
+      "key_facts": [],
+      "sources": [],
+      "disagreements": [
+        "[tool-outage] All web_search and web_fetch invocations in this session failed with 'Unexpected end of JSON input', including trivial control queries ('hello world', 'a', fetch of https://example.com and https://www.google.com). No content was retrieved, so no claims, citations, or source-level disagreements can be reported. This sub-question requires re-running once the web tools are operational."
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://www.anthropic.com/engineering/multi-agent-research-system",
+      "title": "How we built our multi-agent research system — Anthropic Engineering",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://simonwillison.net/2025/Jun/14/multi-agent-research-system",
+      "title": "Anthropic: How we built our multi-agent research system — Simon Willison's Weblog",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://engineering.01cloud.com/2025/06/30/claude-meets-the-research-team-inside-anthropics-multi-agent-masterpiece/",
+      "title": "Claude Meets the Research Team: Inside Anthropic's Multi-Agent Masterpiece — 01cloud Engineering Blog",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://differ.blog/p/how-we-built-our-multi-agent-research-system-d59b33",
+      "title": "How we built our multi-agent research system — Differ (summary of Anthropic post)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://openai.com/index/deep-research-system-card/",
+      "title": "Deep research System Card | OpenAI",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://cdn.openai.com/deep-research-system-card.pdf",
+      "title": "Deep Research System Card (PDF) — OpenAI, Feb 25 2025",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://deploymentsafety.openai.com/deep-research",
+      "title": "Deep Research System Card — OpenAI Deployment Safety Hub",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://openai.com/index/introducing-deep-research",
+      "title": "Introducing deep research | OpenAI (Feb 2 2025 launch post with later updates through Feb 2026)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://blog.google/innovation-and-ai/technology/developers-tools/deep-research-agent-gemini-api/",
+      "title": "Build with Gemini Deep Research — Google blog (Dec 11 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://gemini.google/pf/overview/deep-research/",
+      "title": "Gemini Deep Research – your personal research assistant — Gemini product page",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/next-generation-gemini-deep-research/",
+      "title": "Deep Research Max: a step change for autonomous research agents — Google blog (Apr 21 2026)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://blog.google/products/gemini/google-gemini-deep-research",
+      "title": "Gemini: Try Deep Research and Gemini 2.0 Flash Experimental — Google blog (Dec 11 2024)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://www.perplexity.ai/hub/blog/introducing-perplexity-deep-research",
+      "title": "Introducing Perplexity Deep Research — Perplexity Blog (Feb 14 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://www.linkedin.com/posts/perplexity-ai_introducing-deep-research-on-perplexity-activity-7296217839827308546---0z",
+      "title": "Introducing Deep Research on Perplexity — Perplexity LinkedIn announcement",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://research.perplexity.ai/articles",
+      "title": "Perplexity Research — index of articles (Sept 2025 search API piece, Feb 2026 DRACO benchmark, Apr 2026 search-augmented LLMs piece)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://www.perplexity.ai/hub/blog/how-perplexity-builds-accuracy-into-frontier-ai",
+      "title": "How Perplexity Builds Accuracy into Frontier AI — Perplexity Blog (Apr 22 2026)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/abs/2210.03629v1",
+      "title": "ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al., arXiv 2210.03629)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://blog.research.google/2022/11/react-synergizing-reasoning-and-acting.html",
+      "title": "ReAct: Synergizing Reasoning and Acting in Language Models (Google Research blog)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2310.11511v1",
+      "title": "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection (Asai et al., arXiv 2310.11511)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://selfrag.github.io/",
+      "title": "Self-RAG project page",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/abs/2303.11366v4",
+      "title": "Reflexion: Language Agents with Verbal Reinforcement Learning (Shinn et al., arXiv 2303.11366)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://github.com/noahshinn/reflexion",
+      "title": "noahshinn/reflexion GitHub repository (NeurIPS 2023 reference implementation)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/abs/2305.10601v2",
+      "title": "Tree of Thoughts: Deliberate Problem Solving with Large Language Models (Yao et al., arXiv 2305.10601)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://huggingface.co/blog/open-deep-research",
+      "title": "Open-source DeepResearch – Freeing our search agents (Hugging Face blog, Roucher et al., Feb 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://shekhargulati.com/2025/02/05/my-notes-on-open-deep-researcher/",
+      "title": "My Notes on Open Deep Researcher — Shekhar Gulati (smolagents Open Deep Research walkthrough)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://docs.gptr.dev/docs/gpt-researcher/gptr/config",
+      "title": "GPT Researcher Configuration documentation (deep-research parameters)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://docs.gptr.dev/docs/gpt-researcher/gptr/deep_research",
+      "title": "GPT Researcher Deep Research documentation",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://github.com/assafelovic/gpt-researcher/blob/9e4a19ae/gpt_researcher/skills/deep_research.py",
+      "title": "gpt_researcher/skills/deep_research.py source code (GPT-Researcher 9e4a19ae)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://www.bolshchikov.com/p/open-deep-research-internals-a-step",
+      "title": "Langchain Open Deep Research Internals: A Step-by-Step Architecture Guide (Sergey Bolshchikov, Nov 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://huggingface.co/blog/exploding-gradients/deepresearch-survey",
+      "title": "In-Depth Analysis of the Latest Deep Research Technology (Hugging Face / Exploding Gradients survey, Sep 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/html/2508.12752v1",
+      "title": "Deep Research: A Survey of Autonomous Research Agents (Zhang et al., 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.03887v1",
+      "title": "A Hierarchical Tree-based approach for creating Configurable and Static Deep Research Agent (Static-DRA) (Prateek, 2025)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/abs/2602.05975",
+      "title": "SAGE: Benchmarking and Improving Retrieval for Deep Research Agents (2026)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/abs/2603.04384v2",
+      "title": "AgentIR: Reasoning-Aware Retrieval for Deep Research Agents (2026)",
+      "retrieved_at": "2026-05-05"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2510.14240",
+      "title": "LiveResearchBench: A Live Benchmark for User-Centric Deep Research in the Wild (Wang, Ming et al., Salesforce AI Research, 2025)",
+      "retrieved_at": "2026-05-05"
+    }
+  ],
+  "runs": [
+    {
+      "phase": "planner",
+      "query": "What are the best practices and industry standards for LLM-based \"deep research\" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?",
+      "usage": {
+        "input": 6,
+        "output": 1058,
+        "cost": 0.0541175,
+        "turns": 1,
+        "toolCalls": 0
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L1",
+      "query": "What are the documented architectures, orchestration patterns, and quantitative engineering details (token-use multipliers, parallel subagent counts, performance lifts, model cascades) of the production deep-research systems from Anthropic (Claude multi-agent research system), OpenAI (Deep Research), Google (Gemini Deep Research), and Perplexity Deep Research, according to their own engineering blog posts, system cards, and official documentation in 2024–2026?",
+      "usage": {
+        "input": 31,
+        "output": 11971,
+        "cost": 2.81523625,
+        "turns": 26,
+        "toolCalls": 28
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L1",
+      "query": "What concrete techniques do primary sources (arXiv papers on ReAct, Self-RAG, Reflexion, Tree-of-Thoughts; LangGraph/LangChain, Hugging Face Open Deep Research, GPT-Researcher, smolagents engineering write-ups) recommend for sub-question planning and decomposition in deep-research agents — specifically breadth-vs-depth tradeoffs, recursion criteria, iteration/budget caps, stopping rules, and scratchpad/memory design?",
+      "usage": {
+        "input": 40,
+        "output": 15574,
+        "cost": 4.3664515,
+        "turns": 35,
+        "toolCalls": 40
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L1",
+      "query": "What are the current best practices for retrieval, browsing, and citation grounding in deep-research agents — including search backend selection, query rewriting, source deduplication and diversity, freshness handling, PDF/JS-rendered page extraction, inline citation styles, and citation-faithfulness metrics such as Attributable to Identified Sources (AIS), citation-F1, and hallucinated-citation detection — based on primary papers and lab engineering posts?",
+      "usage": {
+        "input": 59,
+        "output": 13076,
+        "cost": 7.991042250000001,
+        "turns": 54,
+        "toolCalls": 57
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L1",
+      "query": "What documented limitations, failure modes, and substantive critiques exist for LLM deep-research systems — including indirect/cross-domain prompt injection (XPIA) from fetched pages, the 'lethal trifecta' exfiltration pattern (Simon Willison), evidence that strong single-agent systems can match or beat multi-agent orchestration, citation hallucination and over-confidence in synthesis, benchmark-gaming on BrowseComp/GAIA, and reported safety incidents or red-team findings in lab system cards from 2024–2026?",
+      "usage": {
+        "input": 48,
+        "output": 16797,
+        "cost": 11.335162249999994,
+        "turns": 43,
+        "toolCalls": 49
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L1",
+      "query": "Which evaluation benchmarks and protocols are considered authoritative for deep-research agents — specifically BrowseComp, GAIA, FRAMES, Humanity's Last Exam, SimpleQA, FreshQA, and HELM — what does each measure, what scores have leading systems reported, and what LLM-as-judge and human-eval protocols (including regression testing for non-deterministic agents) are documented in their original papers and official leaderboards?",
+      "usage": {
+        "input": 207,
+        "output": 17433,
+        "cost": 17.705180250000005,
+        "turns": 202,
+        "toolCalls": 206
+      },
+      "ok": false,
+      "error": "subagent timeout after 600000ms"
+    },
+    {
+      "phase": "followup-L2",
+      "query": "What are the best practices and industry standards for LLM-based \"deep research\" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?",
+      "usage": {
+        "input": 6,
+        "output": 996,
+        "cost": 0.06554875,
+        "turns": 1,
+        "toolCalls": 0
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L2",
+      "query": "What do the original papers and official leaderboards for BrowseComp (OpenAI), GAIA (Mialon et al.), FRAMES (Google), Humanity's Last Exam (CAIS/Scale), SimpleQA (OpenAI), and FreshQA specify about task construction, scoring rubrics, LLM-as-judge protocols, human-verification procedures, and reported scores for leading deep-research systems — and what regression-testing or variance-reporting practices do these benchmarks recommend for non-deterministic agents?",
+      "usage": {
+        "input": 24,
+        "output": 3160,
+        "cost": 0.144315,
+        "turns": 19,
+        "toolCalls": 22
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L2",
+      "query": "What concrete cost, latency, and token-efficiency engineering practices are documented for production deep-research systems — including prompt caching, context compression/summarization between iterations, model cascades (cheap planner + expensive synthesizer), parallel tool-call batching, early-termination heuristics, and reported per-query token/cost/latency numbers from Anthropic, OpenAI, Google, and Perplexity engineering posts?",
+      "usage": {
+        "input": 28,
+        "output": 3549,
+        "cost": 0.16618175,
+        "turns": 23,
+        "toolCalls": 25
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L2",
+      "query": "What architectural and retrieval-stack details about Perplexity Deep Research / Sonar Deep Research are documented in Perplexity's own engineering blog, API reference, and changelog (parallel search-agent counts, model used for synthesis, reasoning-token accounting, freshness/recency handling, and the Bing+Sonar hybrid pipeline) — and how do these compare to independent third-party reverse-engineering write-ups?",
+      "usage": {
+        "input": 26,
+        "output": 3361,
+        "cost": 0.1552755,
+        "turns": 21,
+        "toolCalls": 23
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L2",
+      "query": "What do controlled head-to-head comparisons (independent academic evaluations or shared-task bake-offs published in 2025–2026) report about single-agent vs orchestrator-worker multi-agent deep-research systems when compute is explicitly matched, and what specific task characteristics (breadth of sources, parallelizability, heterogeneous tool needs) predict when multi-agent orchestration actually wins?",
+      "usage": {
+        "input": 37,
+        "output": 4260,
+        "cost": 0.22235550000000004,
+        "turns": 32,
+        "toolCalls": 33
+      },
+      "ok": true
+    },
+    {
+      "phase": "worker-L2",
+      "query": "What do primary system cards and safety documentation (OpenAI Deep Research system card, Anthropic Claude 4/Opus system cards covering Research, Google Gemini Deep Research model/system cards) explicitly say about red-team findings, prompt-injection ASR, exfiltration mitigations, refusal behavior, and capability scoping for the deep-research agentic mode specifically — as opposed to the base model?",
+      "usage": {
+        "input": 36,
+        "output": 3690,
+        "cost": 0.200589,
+        "turns": 31,
+        "toolCalls": 33
+      },
+      "ok": true
+    },
+    {
+      "phase": "writer",
+      "query": "What are the best practices and industry standards for LLM-based \"deep research\" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?",
+      "usage": {
+        "input": 6,
+        "output": 20637,
+        "cost": 0.7686425000000001,
+        "turns": 1,
+        "toolCalls": 0
+      },
+      "ok": true
+    }
+  ],
+  "usage": {
+    "input": 554,
+    "output": 115562,
+    "cost": 45.990097999999996,
+    "turns": 489,
+    "toolCalls": 516
+  },
+  "report_path": "/Users/churchill/Repositories/pi-deep-research/.deep-research/llm-deep-research-best-practices/report.md"
+}
