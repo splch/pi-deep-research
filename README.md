@@ -21,10 +21,10 @@ Each subagent is a separate `pi -p --mode json` process (isolated context window
 
 ```bash
 # Install (global; recommended so children pick it up automatically)
-pi install git:github.com/<you>/pi-deep-research
+pi install git:github.com/splch/pi-deep-research
 
 # OR clone + run locally
-git clone https://github.com/<you>/pi-deep-research ~/.pi/agent/extensions/pi-deep-research
+git clone https://github.com/splch/pi-deep-research ~/.pi/agent/extensions/pi-deep-research
 
 # Configure at least one search provider (one is enough)
 export TAVILY_API_KEY=...      # preferred — built for AI agents
