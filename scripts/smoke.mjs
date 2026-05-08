@@ -16,6 +16,9 @@ import assert from "node:assert/strict";
 
 // Compile index.ts to a tmp dir, then import.
 const dir = mkdtempSync(join(tmpdir(), "pi-dr-smoke-"));
+// The compiled module reads ./package.json at init via import.meta.url.
+import { copyFileSync } from "node:fs";
+copyFileSync(new URL("../package.json", import.meta.url), join(dir, "package.json"));
 
 // Strip the parts that import workspace deps and re-export only pure helpers.
 // This is purely a smoke harness; the production extension stays unchanged.
@@ -29,7 +32,7 @@ const stubbed =
 		.replace(/^import type { ExtensionAPI } from "@mariozechner\/pi-coding-agent";$/m, "")
 		.replace(/^import { Text } from "@mariozechner\/pi-tui";$/m, "const Text = class { constructor(){} };")
 		.replace(/^import { Type } from "typebox";$/m, "const Type = new Proxy({}, { get: () => () => ({}) });") +
-	`\nexport { exfilCheck, hostMatches, htmlToText, parsePlanner, parseWorkerOutput, dedupeSources, mergePresetIntoBrief, serializeBrief, annotateDeadLinks, PRESETS };\n`;
+	`\nexport { exfilCheck, hostMatches, htmlToText, parsePlanner, parseWorkerOutput, dedupeSources, mergePresetIntoBrief, serializeBrief, annotateDeadLinks, slugify, hashFinding, PRESETS };\n`;
 
 const tsSrc = join(dir, "src.ts");
 writeFileSync(tsSrc, stubbed);
@@ -98,9 +101,28 @@ assert.ok(merged.brief.source_prefer.includes("x"));
 assert.ok(merged.brief.must_address.length > 0, "preset adds must_address");
 
 // --- serializeBrief ----------------------------------------------------------
-const s = m.serializeBrief({ audience: "PMs", scope_in: ["a", "b"] }, null);
+const s = m.serializeBrief({ audience: "PMs", scope_in: ["a", "b"], notes: "freeform addendum" }, null, "日本語");
 assert.match(s, /AUDIENCE: PMs/);
 assert.match(s, /SCOPE \(in\)/);
+assert.match(s, /LANGUAGE: search and report primarily in 日本語/);
+assert.match(s, /NOTES \(free-form addendum\):\nfreeform addendum/);
+const sLegal = m.serializeBrief({ audience: "counsel" }, m.PRESETS.legal);
+assert.match(sLegal, /DOMAIN PRESET: legal/);
+assert.match(sLegal, /Require ≥1 source\(s\)/);
+
+// --- slugify -----------------------------------------------------------------
+assert.equal(m.slugify("How does X compare to Y?"), "how-does-x-compare-to-y");
+assert.equal(m.slugify("   ---trim me---  ").length > 0, true);
+assert.equal(m.slugify(""), "query");
+assert.equal(m.slugify("a".repeat(200)).length, 40);
+
+// --- hashFinding -------------------------------------------------------------
+const h1 = m.hashFinding({ sub_question: "q", summary: "s", key_facts: [], sources: [], disagreements: [] });
+const h2 = m.hashFinding({ sub_question: "q", summary: "s", key_facts: [], sources: [], disagreements: [], _failed: true });
+assert.equal(h1, h2, "hash ignores transient _failed flag");
+assert.equal(h1.length, 64, "sha256 hex length");
+const h3 = m.hashFinding({ sub_question: "different", summary: "s", key_facts: [], sources: [], disagreements: [] });
+assert.notEqual(h1, h3, "hash differs on content change");
 
 // --- annotateDeadLinks -------------------------------------------------------
 assert.equal(m.annotateDeadLinks("Hello [1] [2] [3].", new Set([2])), "Hello [1] [2]💀 [3].");
@@ -111,7 +133,19 @@ assert.equal(
 );
 
 // --- PRESETS shape -----------------------------------------------------------
-assert.ok(["legal", "medical", "academic", "financial"].every((k) => k in m.PRESETS));
+for (const k of ["legal", "medical", "academic", "financial", "regulatory"]) {
+	assert.ok(k in m.PRESETS, `preset ${k} present`);
+	const p = m.PRESETS[k];
+	assert.equal(p.name, k);
+	assert.ok(p.disclosure_extra.length > 20);
+	assert.ok(Array.isArray(p.must_address) && p.must_address.length > 0);
+	assert.ok(typeof p.require_min_sources_per_claim === "number");
+}
+
+// --- preset merge into brief -------------------------------------------------
+const regMerged = m.mergePresetIntoBrief({ source_prefer: ["x"] }, "regulatory");
+assert.equal(regMerged.overlay.name, "regulatory");
+assert.ok(regMerged.brief.source_prefer.some((s) => /NIST|ISO/i.test(s)));
 
 console.log("✓ all smoke tests passed");
 rmSync(dir, { recursive: true, force: true });
