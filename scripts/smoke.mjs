@@ -32,7 +32,7 @@ const stubbed =
 		.replace(/^import type { ExtensionAPI } from "@mariozechner\/pi-coding-agent";$/m, "")
 		.replace(/^import { Text } from "@mariozechner\/pi-tui";$/m, "const Text = class { constructor(){} };")
 		.replace(/^import { Type } from "typebox";$/m, "const Type = new Proxy({}, { get: () => () => ({}) });") +
-	`\nexport { exfilCheck, hostMatches, htmlToText, parsePlanner, parseWorkerOutput, dedupeSources, mergePresetIntoBrief, serializeBrief, annotateDeadLinks, slugify, hashFinding, PRESETS };\n`;
+	`\nexport { exfilCheck, hostMatches, htmlToText, parsePlanner, parseWorkerOutput, dedupeSources, mergePresetIntoBrief, serializeBrief, annotateDeadLinks, slugify, hashFinding, canonicalUrl, PRESETS };\n`;
 
 const tsSrc = join(dir, "src.ts");
 writeFileSync(tsSrc, stubbed);
@@ -47,15 +47,24 @@ const out = join(dir, "src.js");
 const m = await import(out);
 
 // --- exfilCheck --------------------------------------------------------------
-assert.equal(m.exfilCheck("https://example.com/page"), null, "plain URL");
-assert.equal(m.exfilCheck("https://example.com/p?utm_source=foo"), null, "utm allowed");
-assert.match(m.exfilCheck("https://example.com/p?api_key=xxx") ?? "", /api/i, "api_key blocked");
-assert.match(m.exfilCheck("https://example.com/p?access_token=zzz") ?? "", /token/i, "access_token blocked");
-assert.match(m.exfilCheck("https://example.com/p?password=hi") ?? "", /password/i, "password blocked");
-assert.match(m.exfilCheck("https://example.com/p?bearer=tok") ?? "", /bearer/i, "bearer blocked");
-assert.match(m.exfilCheck("ftp://example.com/x") ?? "", /protocol/i, "non-http blocked");
-assert.match(m.exfilCheck("https://example.com/p?key=" + "a".repeat(400)) ?? "", /opaque/i, "long blob blocked");
-assert.equal(m.exfilCheck("https://example.com/?author=Smith"), null, "author key NOT confused with auth");
+// New contract: returns { parsed: URL } on success, { reason: string } on refusal.
+const exfilOk = (u) => {
+	const r = m.exfilCheck(u);
+	return "parsed" in r;
+};
+const exfilReason = (u) => {
+	const r = m.exfilCheck(u);
+	return "reason" in r ? r.reason : null;
+};
+assert.equal(exfilOk("https://example.com/page"), true, "plain URL");
+assert.equal(exfilOk("https://example.com/p?utm_source=foo"), true, "utm allowed");
+assert.match(exfilReason("https://example.com/p?api_key=xxx") ?? "", /api/i, "api_key blocked");
+assert.match(exfilReason("https://example.com/p?access_token=zzz") ?? "", /token/i, "access_token blocked");
+assert.match(exfilReason("https://example.com/p?password=hi") ?? "", /password/i, "password blocked");
+assert.match(exfilReason("https://example.com/p?bearer=tok") ?? "", /bearer/i, "bearer blocked");
+assert.match(exfilReason("ftp://example.com/x") ?? "", /protocol/i, "non-http blocked");
+assert.match(exfilReason("https://example.com/p?key=" + "a".repeat(400)) ?? "", /opaque/i, "long blob blocked");
+assert.equal(exfilOk("https://example.com/?author=Smith"), true, "author key NOT confused with auth");
 
 // --- hostMatches -------------------------------------------------------------
 assert.equal(m.hostMatches("example.com", []), true, "empty allowlist passes everything");
@@ -131,6 +140,11 @@ assert.equal(
 	"Hello [2]💀 [2]💀 [2]💀.",
 	"already-annotated stays single-marked",
 );
+
+// --- canonicalUrl ------------------------------------------------------------
+assert.equal(m.canonicalUrl("https://a.com/path?x=1"), "https://a.com/path");
+assert.equal(m.canonicalUrl("https://a.com/path/"), "https://a.com/path");
+assert.equal(m.canonicalUrl("https://a.com/path/#section"), "https://a.com/path");
 
 // --- PRESETS shape -----------------------------------------------------------
 for (const k of ["legal", "medical", "academic", "financial", "regulatory"]) {
