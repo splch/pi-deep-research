@@ -1,7 +1,9 @@
 /**
  * pi-deep-research — multi-agent deep research extension.
  *
- * Pipeline: Planner → N parallel Workers → Writer → CitationAgent → E1 URL verify.
+ * Pipeline: Planner → N parallel Workers → Writer → E1 URL verify → CitationAgent.
+ * URL verify runs before the CitationAgent so the dead-link map is available
+ * when citations are audited (the agent marks `[N]💀` directly in the draft).
  * Each subagent is a separate `pi -p --mode json` process; this extension is
  * re-injected so workers inherit web_search/web_fetch and nothing else.
  */
@@ -583,9 +585,9 @@ Rules:
 - No overlap; cover distinct facets.
 - Anchor at least half to primary sources (official docs, regulations, peer-reviewed papers, original reporting, datasets).
 - Include AT LEAST ONE counter-evidence sub-question to mitigate confirmation bias.
-- Do NOT answer the question. Only decompose.
+- Decompose only — emit sub-questions, never answers.
 
-If FINDINGS from a previous level are provided, treat this as FOLLOW-UP planning: generate sub-questions that fill gaps, resolve contradictions, or stress-test load-bearing claims. Do not repeat earlier sub-questions. Return fewer (or none) if coverage is already strong.`;
+If FINDINGS from a previous level are provided, treat this as FOLLOW-UP planning: generate sub-questions that fill gaps, resolve contradictions, or stress-test load-bearing claims. Keep each follow-up distinct from earlier sub-questions. Return fewer (or none) if coverage is already strong.`;
 
 const WORKER_BASE = `You are a RESEARCH WORKER. Investigate ONE sub-question end-to-end and return structured findings.
 
@@ -614,33 +616,36 @@ Output: your FINAL message MUST end with this JSON block (and nothing after):
 }
 \`\`\`
 
-Every source needs publication_date ("unknown" counts against credibility). Cite ONLY URLs you fetched. Never invent. If nothing useful was found, return empty arrays and say so in summary.`;
+Every source needs publication_date ("unknown" counts against credibility). Cite only URLs you successfully fetched in this run; if a fact lacks a fetched source, drop it or label it "uncertain". When the search budget is exhausted with no usable findings, return empty arrays and state so in summary.`;
 
 const WRITER_PROMPT = `You are the WRITER. Synthesize workers' findings into one coherent, well-cited markdown report.
 
-- Inline numbered citations [1][2] referring ONLY to the numbered Sources list provided.
-- Never invent citations, URLs, or facts.
-- Every non-trivial claim has at least one citation.
+- Use inline numbered citations [1][2] that reference ONLY the numbered Sources list provided.
+- Cite only sources from that list and use only facts present in the worker findings.
+- Attach at least one citation to every non-trivial claim.
 - Confidence markers next to claims: ✓ verified, ◐ single-source, ? inferred or uncertain.
 - Surface disagreements explicitly ("Sources differ on X: [1] reports A while [3] reports B").
-- Preserve hedges. Do NOT manufacture certainty.
-- Direct, specific prose: numbers with units, named entities, dates, mechanisms.
+- Preserve every hedge written by the workers verbatim; keep their confidence labels.
+- Write direct, specific prose: numbers with units, named entities, dates, mechanisms.
 
 Structure: \`## TL;DR\` (cited bullets) → analysis sections (H2/H3) → \`## Sources\` (numbered list, reproduce verbatim).
 
-No AI-generation preambles or meta-commentary. The orchestrator adds the disclosure header separately.`;
+Begin directly at \`## TL;DR\` — the orchestrator adds the disclosure header separately, so omit any preamble or meta-commentary.`;
 
 const CITATION_PROMPT = `You are the CITATION AGENT — final-pass auditor. Verify and repair citations in the Writer's draft.
 
 You receive: the Writer's draft, the numbered Sources list (the only valid indices), per-finding sources_used, and dead-link verification results.
 
-Tasks:
-1. Verify every [N] is a valid index. Replace invalid indices with the closest valid one from the cited finding's sources_used; if no support exists, append "[unsupported]" and leave the citation in place.
+Allowed edits (these only):
+1. Validate every [N]. Replace invalid indices with the closest valid one from the cited finding's sources_used; if no listed source supports the claim, append "[unsupported]" and leave the citation in place.
 2. Add citations to load-bearing claims missing them, drawing only from the provided findings/sources.
 3. Mark dead-link citations with 💀 (e.g., "[3]💀").
-4. Preserve confidence markers (✓ ◐ ?) and disagreement callouts. Do not weaken or strengthen hedges.
-5. Do NOT add new claims, invent URLs/titles, or remove the Sources section.
-6. Append "## Citation audit" listing total citations, dead-link count, repairs, and "[unsupported]" claims.
+4. Append a "## Citation audit" section listing total citations, dead-link count, repairs made, and "[unsupported]" claims.
+
+Preserve verbatim:
+- Every original claim, its wording, and its hedges.
+- Confidence markers (✓ ◐ ?) and disagreement callouts — keep all hedges at the strength the Writer set.
+- All URLs, titles, and the entire Sources section.
 
 Output ONLY the repaired markdown report.`;
 

@@ -4,14 +4,16 @@ Multi-agent deep research extension for [pi](https://github.com/badlogic/pi-mono
 
 ```
 ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│   Planner    │ ► │  N Workers   │ ► │    Writer    │ ► │  Citation    │ ► │   E1 URL     │
-│  (subagent)  │   │  (parallel,  │   │  (subagent)  │   │   Agent      │   │   Verify     │
-│              │   │   isolated)  │   │              │   │  (subagent)  │   │  (HEAD)      │
-│ tier + sub-  │   │ search+fetch │   │ cite [N] →   │   │ audit & 💀   │   │ mark dead    │
-│ questions    │   │ structured   │   │ draft.md     │   │ repaired md  │   │ links        │
+│   Planner    │ ► │  N Workers   │ ► │    Writer    │ ► │   E1 URL     │ ► │  Citation    │
+│  (subagent)  │   │  (parallel,  │   │  (subagent)  │   │   Verify     │   │   Agent      │
+│              │   │   isolated)  │   │              │   │  (HEAD)      │   │  (subagent)  │
+│ tier + sub-  │   │ search+fetch │   │ cite [N] →   │   │ mark dead    │   │ audit & 💀   │
+│ questions    │   │ structured   │   │ draft.md     │   │ links        │   │ repaired md  │
 │              │   │ findings     │   │              │   │              │   │              │
 └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
 ```
+
+URL verification runs **before** the CitationAgent so the agent receives the dead-link map and can mark `[N]💀` directly while it audits citations. If the CitationAgent is disabled, the orchestrator inlines the `💀` markers itself.
 
 Each subagent is a separate `pi -p --mode json` process (isolated context window, least-privilege tool set). The same extension is re-injected into children via `-e <self>`, so workers inherit `web_search` and `web_fetch` and nothing else.
 
@@ -67,7 +69,7 @@ Multi-agent orchestrator. Use only for questions a human analyst would take 4+ h
 |---|---|---|
 | `effort_tier` | `auto` | `fact` (≤2 subq), `comparison` (≤4), `complex` (= breadth), or `auto` (planner picks). Caps breadth. |
 | `breadth_decay` | `true` | Halve breadth at each recursion level (`max(2, breadth // 2)`). |
-| `enable_citation_agent` | `true` | Run a 5th-phase auditor that repairs miscited claims and marks 💀 dead links. |
+| `citation_audit` | `true` | Run a 5th-phase auditor that repairs miscited claims and marks 💀 dead links. |
 | `verify_urls` | `true` | HEAD-check every cited URL. Failed URLs are tagged `[N]💀` in the report. |
 | `brief.recency_bound` | — | ISO date — older sources get downgraded to "uncertain" unless canonical. |
 
@@ -88,8 +90,8 @@ The dominant cost lever in practice. Workers do bulk extraction (cheap models OK
 
 | Param | Meaning |
 |---|---|
-| `egress_allowlist` | Host patterns (`example.com`, `*.gov`) — workers can only fetch matching hosts. Empty = no allowlist. |
-| `egress_blocklist` | Host patterns to refuse. |
+| `host_allowlist` | Host patterns (`example.com`, `*.gov`) — workers can only fetch matching hosts. Empty = no allowlist. |
+| `host_blocklist` | Host patterns to refuse. |
 | `extra_worker_tools` | Additional pi-registered tool names workers may call (e.g. MCP-provided tools). Default: just `web_search` + `web_fetch`. |
 
 URL exfiltration sinks (api keys, tokens, oversized opaque blobs in query strings) are **always** refused at the `web_fetch` layer regardless of allowlist — this blocks the third leg of the lethal trifecta architecturally.
@@ -187,7 +189,7 @@ Presets do not change the architecture — they raise the bar and pre-fill the b
 | **Post-hoc citation attribution** (Anthropic CitationAgent pattern) | Two-layer: (1) Writer is constrained to a deduped, numbered Source list with pre-mapped `sources_used` indices; (2) CitationAgent 5th phase audits the draft, repairs miscited claims, flags unsupported ones, appends a `## Citation audit` section. |
 | **E1 URL-resolve verification** (LiveResearchBench's E1 step) | HEAD-check every cited URL after the Writer; tag `[N]💀` in the report; full results in `manifest.url_checks`. |
 | **Indirect-prompt-injection mitigation** (OWASP LLM Top 10 #1) | Worker prompt declares fetched content untrusted; injection attempts must be recorded verbatim in `disagreements`. Workers also have *no* write/edit/bash tools — least privilege by construction. |
-| **Lethal-trifecta egress block** (Simon Willison; OpenAI's "no arbitrary URL construction" mitigation) | `web_fetch` refuses URLs whose query strings contain `api_key` / `secret` / `token` / `password` / `auth` / `bearer` keys, oversized opaque blobs (>300 chars base64-shaped), or whose protocol is not HTTP(S). Optional `egress_allowlist` / `egress_blocklist` per query. |
+| **Lethal-trifecta egress block** (Simon Willison; OpenAI's "no arbitrary URL construction" mitigation) | `web_fetch` refuses URLs whose query strings contain `api_key` / `secret` / `token` / `password` / `auth` / `bearer` keys, oversized opaque blobs (>300 chars base64-shaped), or whose protocol is not HTTP(S). Optional `host_allowlist` / `host_blocklist` per query. |
 | **Cost cap + graceful partial-results** (token-spend-explains-80%-of-variance literature) | `max_total_usd` checked before each subagent launch; the run aborts gracefully and writes whatever it has. Disclosure header surfaces 💸 cap-hit. |
 | **AI-disclosure header on report** (ICMJE/COPE/WAME consensus; preset adds domain-specific extras) | Every report opens with a frontmatter block + warning ("AI cannot be an author; verify before relying"); presets add an extra warning line. |
 | **Per-phase model cascade** (Anthropic Opus-lead/Sonnet-subagent; OpenAI o3 + o3-mini summarizer) | Independent `planner_model` / `worker_model` / `writer_model` / `citation_model` overrides plus matching `*_thinking` levels. |
@@ -196,7 +198,7 @@ Presets do not change the architecture — they raise the bar and pre-fill the b
 | **Multilingual research** | `language` parameter is propagated into the brief preamble for all phases. |
 | **Web-fetch escalation** (Jina Reader for JS-heavy pages) | Direct HTTP first; auto-escalates to Jina if `JINA_API_KEY` is set and the page came back sparse/empty. If `JINA_API_KEY` is set, Jina is preferred from the start (fall back to direct). |
 | **Provenance manifest with full lineage** | `manifest.json` records run id, query, brief (user input + resolved post-preset), preset, language, config, plan, every subagent run with usage/cost/turns/model/level, all findings (with content SHA-256), deduped sources, URL-check results, and the report path. `schema_version: 4`. |
-| **Reproducibility metadata** (Doc-B reproducibility checklist) | Manifest captures `pi_version`, `extension_version`, `node_version`, `platform`, `arch`, `search_provider`, `jina_configured`, plus per-phase models actually used (resolved from pi's events). |
+| **Reproducibility metadata** (Doc-B reproducibility checklist) | Manifest captures `extension_version`, `node_version`, `platform`, `arch`, `search_provider`, `jina_configured`, plus per-phase models actually used (resolved from pi's events). |
 | **Cost & turn tracking** | Each phase parses `pi --mode json` events; manifest aggregates `input` / `output` / `cost` / `turns` / `toolCalls`. |
 | **Cancellation & timeouts** | All children honor the parent `AbortSignal`; per-subagent SIGTERM→SIGKILL with grace; partial failures are tolerated. |
 | **Graceful partial failure** | A failed worker is recorded as such; remaining workers and the writer still proceed. Cost-cap mid-run also writes partial results. |
@@ -225,7 +227,7 @@ Presets do not change the architecture — they raise the bar and pre-fill the b
 ```markdown
 ---
 generated_by: pi-deep-research
-extension_version: 0.3.0
+extension_version: 0.4.0
 generated_at: 2026-05-08T14:32:07.123Z
 duration_ms: 632108
 query: "..."
@@ -240,7 +242,7 @@ unique_sources: 22
 workers_total: 4
 workers_failed: 0
 dead_link_citations: 1
-citation_agent: enabled
+citation_audit: enabled
 url_verify: enabled
 total_cost_usd: 0.4781
 ---
@@ -275,16 +277,16 @@ total_cost_usd: 0.4781
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "run":         { "id": "...", "started_at": "...", "duration_ms": ..., "report_path": "...", "cost_cap_hit": false, "abort_reason": null },
-  "request":     { "query": "...", "brief": {...}, "preset": "financial", "language": "English" },
+  "request":     { "query": "...", "brief": {...}, "brief_resolved": {...}, "preset": "financial", "language": "English" },
   "config":      { "breadth": 5, "effective_breadth": 4, "depth": 2, "concurrency": 5,
                    "max_sources": 30, "max_total_usd": 10.0, "breadth_decay": true,
-                   "effort_tier": "comparison", "citation_agent": true, "url_verify": true,
-                   "egress_allowlist": [], "egress_blocklist": [], "extra_worker_tools": [],
+                   "effort_tier": "comparison", "citation_audit": true, "url_verify": true,
+                   "host_allowlist": [], "host_blocklist": [], "extra_worker_tools": [],
                    "models":   { "planner": "...", "worker": "...", "writer": "...", "citation": "..." },
                    "thinking": { "planner": "...", "worker": "...", "writer": "...", "citation": "..." } },
-  "environment": { "pi_version": "0.74.0", "extension_version": "0.3.0",
+  "environment": { "extension_version": "0.4.0",
                    "node_version": "v24.15.0", "platform": "darwin", "arch": "arm64",
                    "search_provider": "tavily", "jina_configured": true },
   "plan": [...],

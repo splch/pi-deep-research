@@ -26,7 +26,7 @@ A worked example of using `deep_research` for a comparative architecture analysi
 
 ## What made this prompt work
 
-The `instructions` brief was structured around five concrete scaffolds the planner could lean on:
+The `brief` was structured around five concrete scaffolds the planner could lean on:
 
 1. **Audience pinned** — "ML engineers, applied researchers, tech leads," with explicit "skip definitions of what an LLM/agent is" so workers don't waste turns on background.
 2. **Scope fenced both ways** — explicit INCLUDE list of named systems (Anthropic Research, OpenAI Deep Research, Gemini DR, Perplexity, GPT Researcher, STORM, Open Deep Research) and an EXCLUDE list (general "agentic AI" hype, robotics, pure RAG).
@@ -46,10 +46,22 @@ Three load-bearing claims a reader should verify before quoting the report:
 
 ## Reproducing
 
+See [`prompt.md`](./prompt.md) for the full structured `brief`. Skeleton:
+
 ```ts
 deep_research({
   query: "What are the trade-offs between single-agent and multi-agent LLM deep-research architectures, and which architecture wins under which conditions?",
-  instructions: "...", // see prompt.md for the full brief
+  brief: {
+    audience: "ML engineers, applied researchers, tech leads...",
+    scope_in: [/* named systems + architectural axes */],
+    scope_out: [/* hype, robotics, pure RAG, marketing copy */],
+    source_prefer: [/* first-party eng posts → papers → practitioners → leaderboards */],
+    source_avoid: [/* SEO Medium, listicles, low-signal threads */],
+    must_address: [/* Anthropic numbers, GAIA/BrowseComp/HLE/FRAMES, failure modes, latency, hybrid patterns, 'which wins where' for 5 profiles */],
+    recency_bound: "2024-01-01",
+    target_words: 2200,
+    notes: "Output structure (TL;DR → matrix → evidence → which-wins-where → references) + style guide.",
+  },
   depth: 2,
   breadth: 5,
   concurrency: 5,

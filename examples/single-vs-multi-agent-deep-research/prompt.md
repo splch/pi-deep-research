@@ -7,7 +7,9 @@ What are the trade-offs between single-agent and multi-agent LLM deep-research
 architectures, and which architecture wins under which conditions?
 ```
 
-## Instructions brief
+## Research brief
+
+The brief below is reproduced as the human-readable narrative the prompt was authored in. The structured `brief` object passed to `deep_research` (see [Tool call](#tool-call)) splits it into the typed schema fields (`audience`, `scope_in`, `scope_out`, `source_prefer`, `source_avoid`, `must_address`, `recency_bound`, `target_words`) and stashes the residual style guidance in `notes`.
 
 ```
 AUDIENCE
@@ -126,8 +128,53 @@ STYLE
 
 ```ts
 deep_research({
-  query: "...", // see above
-  instructions: "...", // see above
+  query:
+    "What are the trade-offs between single-agent and multi-agent LLM deep-research architectures, and which architecture wins under which conditions?",
+  brief: {
+    audience:
+      "ML engineers, applied researchers, and tech leads who already understand LLMs, tool use, RAG, and agent loops.",
+    scope_in: [
+      "Anthropic's multi-agent Research system (orchestrator + parallel subagent researchers, public engineering writeup)",
+      "OpenAI Deep Research (o3-based) and ChatGPT's deep-research feature",
+      "Google Gemini Deep Research; Perplexity Pro Search / 'Deep Research' mode",
+      "Open-source: GPT Researcher, open_deep_research / LangGraph templates, CrewAI, AutoGen / Magentic-One, Stanford STORM, smolagents",
+      "Architectural axes: quality/breadth/recall, $-per-query, latency, context-window pressure, reliability, observability, citation faithfulness, engineering complexity, prompt-injection blast radius",
+      "Decision guidance by workload profile and hybrid patterns (single agent + sub-tools, plan-and-execute, researcher+writer split, verifier loops)",
+    ],
+    scope_out: [
+      "general 'agentic AI' hype with no concrete deep-research framing",
+      "robotics / embodied multi-agent systems",
+      "pure RAG architecture comparisons without autonomous iterative research",
+      "marketing copy without technical claims",
+    ],
+    source_prefer: [
+      "first-party engineering posts (Anthropic, OpenAI, Google DeepMind, Perplexity)",
+      "peer-reviewed papers / well-cited arXiv preprints (STORM, AutoGen, Magentic-One, planner-executor, GAIA, BrowseComp, HLE, FRAMES)",
+      "named practitioner writeups (LangChain, LlamaIndex, Hamel Husain, Eugene Yan, Simon Willison, Chip Huyen, Sebastian Raschka, Jason Liu)",
+      "benchmark leaderboards and system cards (GAIA, BrowseComp, Humanity's Last Exam)",
+    ],
+    source_avoid: [
+      "low-quality SEO Medium posts",
+      "content-farm 'Top 10 agent frameworks' listicles",
+      "Twitter threads without substantive content",
+    ],
+    must_address: [
+      "Anthropic's published quality-vs-cost numbers for the multi-agent Research system (≈15× token figure or current public number)",
+      "Public benchmark scores (GAIA, BrowseComp, HLE, FRAMES) for at least OpenAI Deep Research, Gemini Deep Research, and one open-source baseline",
+      "At least one concrete failure mode for multi-agent (coordination/drift/redundancy) and one for single-agent (context rot / lost-in-the-middle on long traces)",
+      "Latency comparison: where parallelism actually pays off vs where serial single-agent is faster end-to-end",
+      "Engineering/observability cost (debuggability, eval, prompt-injection blast radius across subagents)",
+      "Hybrid patterns (single orchestrator with parallel tool calls but no full subagents; researcher+writer split; critic/verifier loops)",
+      "Explicit 'which wins where' for: (a) interactive Q&A under 30s, (b) deep batch research reports, (c) cost-constrained production, (d) regulated/auditable use cases, (e) open-source self-hosted setups",
+      "Note where evidence is publicly thin or vendor-claimed-only and flag it",
+    ],
+    recency_bound: "2024-01-01",
+    target_words: 2200,
+    notes: [
+      "Output: Markdown, ~1,500–2,500 words, in this order — (1) TL;DR (5–8 bullets, each with a confidence label), (2) Definitions & framing, (3) literal trade-off matrix (rows = axes, cols = single-agent / multi-agent / notes), (4) Evidence by axis (cite concrete numbers/benchmarks), (5) 'Which wins where' (explicit recommendations by workload profile), (6) Open questions / where evidence is thin, (7) numbered References matching inline [N] cites.",
+      "Style: lead each section with the answer, then evidence. No 'in today's fast-paced AI landscape' intros. Where vendors disagree, say so explicitly. English-language sources are sufficient.",
+    ].join("\n\n"),
+  },
   depth: 2,
   breadth: 5,
   concurrency: 5,

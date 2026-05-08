@@ -8,7 +8,7 @@ recommendation.
 ## Files
 
 - [`report.md`](./report.md) — the generated report (35 sources, 10-section structure: TL;DR → architectures → planning → retrieval → citations → eval → safety → cost → open problems → 16-item build checklist)
-- [`prompt.md`](./prompt.md) — the exact query and instructions brief
+- [`prompt.md`](./prompt.md) — the exact query and structured `brief`
 - [`manifest.json`](./manifest.json) — full run metadata (sub-questions, per-worker traces, cited sources)
 
 ## Original query
@@ -107,10 +107,23 @@ as an inconsistent citation judge [35].
 
 ## Reproducing
 
+See [`prompt.md`](./prompt.md) for the full structured `brief`. Skeleton:
+
 ```ts
 deep_research({
-  query: "What are the best practices and industry standards for LLM-based \"deep research\" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?",
-  instructions: "...", // see prompt.md for the full brief
+  query:
+    'What are the best practices and industry standards for LLM-based "deep research" systems — agentic systems that decompose a question, run iterative tool-augmented search, and produce cited synthesis reports?',
+  brief: {
+    audience: "Practitioner building/evaluating/hardening an LLM deep-research system...",
+    scope_in: [/* architecture, planning, retrieval, citations, eval, safety, cost, prompting */],
+    scope_out: [/* consumer prompt tips, pure RAG, alignment surveys */],
+    source_prefer: [/* lab eng posts → papers → practitioner writeups → journalism */],
+    source_avoid: [/* SEO listicles, Medium, marketing, undated */],
+    must_address: [/* 10-item completeness checklist with quantitative anchors */],
+    recency_bound: "2024-01-01",
+    target_words: 4000,
+    notes: "Output structure (10 numbered sections → checklist) + per-claim confidence labels (High/Medium/Low) + publication dates.",
+  },
   depth: 2,
   breadth: 5,
   concurrency: 5,
