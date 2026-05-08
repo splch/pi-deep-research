@@ -271,7 +271,7 @@ total_cost_usd: 0.4781
 - [unsupported] claims: 0
 ```
 
-`manifest.json` (`schema_version: 3`) is grouped:
+`manifest.json` (`schema_version: 4`) is grouped:
 
 ```json
 {
