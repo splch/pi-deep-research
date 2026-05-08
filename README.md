@@ -1,16 +1,16 @@
 # pi-deep-research
 
-Multi-agent deep research extension for [pi](https://github.com/badlogic/pi-mono). Decomposes a question into parallel sub-questions, dispatches isolated worker subagents that search and synthesize the web, then writes one cited report — with confidence labels, surfaced disagreements, an AI-disclosure header, and a full provenance manifest.
+Multi-agent deep research extension for [pi](https://github.com/badlogic/pi-mono). Decomposes a question into parallel sub-questions, dispatches isolated worker subagents that search and synthesize the web, then writes one cited report — with confidence labels, surfaced disagreements, optional CitationAgent verification, automatic dead-link checks, an AI-disclosure header, and a full provenance manifest.
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Planner    │ ──► │  N Workers   │ ──► │    Writer    │
-│  (subagent)  │     │  (parallel,  │     │  (subagent)  │
-│              │     │   isolated)  │     │              │
-│ decompose →  │     │ search+fetch │     │ cite [N] →   │
-│ sub-questions│     │ structured   │     │ report.md +  │
-│              │     │ findings     │     │ manifest.json│
-└──────────────┘     └──────────────┘     └──────────────┘
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│   Planner    │ ► │  N Workers   │ ► │    Writer    │ ► │  Citation    │ ► │   E1 URL     │
+│  (subagent)  │   │  (parallel,  │   │  (subagent)  │   │   Agent      │   │   Verify     │
+│              │   │   isolated)  │   │              │   │  (subagent)  │   │  (HEAD)      │
+│ tier + sub-  │   │ search+fetch │   │ cite [N] →   │   │ audit & 💀   │   │ mark dead    │
+│ questions    │   │ structured   │   │ draft.md     │   │ repaired md  │   │ links        │
+│              │   │ findings     │   │              │   │              │   │              │
+└──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
 ```
 
 Each subagent is a separate `pi -p --mode json` process (isolated context window, least-privilege tool set). The same extension is re-injected into children via `-e <self>`, so workers inherit `web_search` and `web_fetch` and nothing else.
@@ -45,19 +45,56 @@ The agent will state its scope interpretation, call `deep_research`, and after 5
 
 ## Tools
 
-### `deep_research(query, instructions?, breadth?, depth?, concurrency?, max_sources?, output_dir?)`
+### `deep_research(query, ...)`
 
 Multi-agent orchestrator. Use only for questions a human analyst would take 4+ hours on. For one-shot lookups, call `web_search` / `web_fetch` directly.
+
+**Core parameters**
 
 | Param | Default | Caps | Meaning |
 |---|---|---|---|
 | `query` | — | — | The research question. |
-| `instructions` | — | — | Detailed brief: audience, scope, sources, exclusions, format. |
-| `breadth` | 4 | 1–8 | Parallel sub-questions per level. |
+| `instructions` | — | — | Free-form research brief (audience, scope, format, exclusions). |
+| `brief` | — | — | **Structured** brief — see [Structured brief](#structured-brief). |
+| `preset` | — | — | `legal` \| `medical` \| `academic` \| `financial` — overlays sources, raises verification bar, adds a domain-specific disclosure. |
+| `breadth` | 4 | 1–8 | Parallel sub-questions per level (cap; effort tier may shrink it further). |
 | `depth` | 1 | 1–3 | Recursion levels (each adds a planner+workers round). |
 | `concurrency` | 4 | 1–8 | Max parallel worker subagents. |
 | `max_sources` | 25 | 1–50 | Max unique sources cited in the final report. |
 | `output_dir` | `./.deep-research/<ts>/` | — | Where `report.md` + `manifest.json` are written. |
+
+**Quality / cost dials**
+
+| Param | Default | Meaning |
+|---|---|---|
+| `effort_tier` | `auto` | `fact` (≤2 subq), `comparison` (≤4), `complex` (= breadth), or `auto` (planner picks). Caps breadth. |
+| `breadth_decay` | `true` | Halve breadth at each recursion level (`max(2, breadth // 2)`). |
+| `enable_citation_agent` | `true` | Run a 5th-phase auditor that repairs miscited claims and marks 💀 dead links. |
+| `verify_urls` | `true` | HEAD-check every cited URL. Failed URLs are tagged `[N]💀` in the report. |
+| `recency_bound` (in `brief`) | — | ISO date — older sources get downgraded to "uncertain" unless canonical. |
+
+**Per-phase model & thinking overrides**
+
+The dominant cost lever in practice. Workers do bulk extraction (cheap models OK); Writer/CitationAgent benefit from reasoning models.
+
+| Param | Effect |
+|---|---|
+| `planner_model` / `planner_thinking` | Override pi's model / thinking level for the Planner. |
+| `worker_model` / `worker_thinking` | Override pi's model / thinking level for Workers. |
+| `writer_model` / `writer_thinking` | Override pi's model / thinking level for the Writer. |
+| `citation_model` / `citation_thinking` | Override pi's model / thinking level for the CitationAgent. |
+
+`thinking` accepts `off | minimal | low | medium | high | xhigh`.
+
+**Security / egress**
+
+| Param | Meaning |
+|---|---|
+| `egress_allowlist` | Host patterns (`example.com`, `*.gov`) — workers can only fetch matching hosts. Empty = no allowlist. |
+| `egress_blocklist` | Host patterns to refuse. |
+| `extra_worker_tools` | Additional pi-registered tool names workers may call (e.g., MCP-provided tools). Default: just `web_search` + `web_fetch`. |
+
+URL exfiltration sinks (api keys, tokens, oversized opaque blobs in query strings) are **always** refused at the `web_fetch` layer regardless of allowlist — this blocks the third leg of the lethal trifecta architecturally.
 
 ### `web_search(query, max_results?)`
 
@@ -65,11 +102,67 @@ Provider-agnostic search. Picks whichever of `TAVILY_API_KEY` (preferred), `BRAV
 
 ### `web_fetch(url)`
 
-Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, uses Jina Reader (handles JS, returns markdown). Otherwise raw HTTP + minimal HTML→text. Output is truncated to 50KB.
+Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks (api keys / tokens / oversized opaque query values). Output truncated to 50KB.
 
 ### `/research <query>`
 
-Slash command: tells the LLM to state its scope interpretation, then call `deep_research` with a detailed brief, and finally flag 2–3 claims worth spot-checking.
+Slash command: tells the LLM to state its scope interpretation, call `deep_research` with a structured `brief` (and matching `preset` if applicable), and finally flag 2–3 claims worth spot-checking — paying attention to any `[N]💀` dead-link markers.
+
+---
+
+## Structured brief
+
+Prefer the structured `brief` over free-form `instructions`; both work, and they compose. Fields:
+
+| Field | Type | Effect |
+|---|---|---|
+| `audience` | string | Who the report is for. |
+| `scope_in` | string[] | What's in-scope. |
+| `scope_out` | string[] | What's out-of-scope. |
+| `source_prefer` | string[] | Source types/exemplars to prefer. |
+| `source_avoid` | string[] | Source types to avoid. |
+| `must_address` | string[] | Completeness checklist. |
+| `recency_bound` | ISO date | Older sources downgraded. |
+| `target_words` | integer | Length budget (100–50,000). |
+
+Example:
+
+```ts
+deep_research({
+  query: "How are central banks deploying CBDC pilots in 2025–2026?",
+  preset: "financial",
+  brief: {
+    audience: "Senior policy analyst at a G20 finance ministry",
+    scope_in: ["wholesale and retail CBDC pilots since 2024", "interoperability standards", "privacy designs"],
+    scope_out: ["cryptocurrency speculation", "CBDC opinion pieces"],
+    source_prefer: ["central bank releases", "BIS papers", "primary CBDC pilot reports"],
+    source_avoid: ["crypto news listicles"],
+    must_address: [
+      "Cover at least 5 distinct jurisdictions.",
+      "Distinguish wholesale from retail designs.",
+      "Note any cross-border interop pilots."
+    ],
+    recency_bound: "2024-01-01",
+    target_words: 3500
+  },
+  depth: 2, breadth: 5, concurrency: 5, max_sources: 30
+});
+```
+
+---
+
+## Domain presets
+
+Each preset overlays source preferences, a stricter completeness checklist, a higher source-per-claim bar, and a domain-specific disclosure header.
+
+| Preset | Disclosure invokes | Source preferences | Min sources per claim |
+|---|---|---|---|
+| `legal` | Mata v. Avianca; Charlotin's database; Versant Funding | Statutes, reported decisions, agency rulemaking, law reviews | 1 (primary cites are often singular) |
+| `medical` | JMIR fabricated-citation review; Retraction Watch; PRISMA / L-PRISMA | RCTs, Cochrane, society guidelines, FDA/EMA, PubMed | 2 |
+| `academic` | ICMJE/COPE/WAME consensus; PRISMA / ROSES | Peer-reviewed, primary datasets, replication packages | 1 |
+| `financial` | SR 26-02 (replacing SR 11-7) | EDGAR filings, earnings transcripts, central bank releases, BLS/BEA/Census | 2 |
+
+Presets do not change the architecture — they raise the bar and pre-fill the brief.
 
 ---
 
@@ -77,29 +170,37 @@ Slash command: tells the LLM to state its scope interpretation, then call `deep_
 
 | Practice | How this extension implements it |
 |---|---|
-| **Orchestrator–worker architecture** (Anthropic; matches consensus that multi-agent wins for breadth-first research, single-agent wins for tight output coordination) | Planner + parallel Workers + single-shot Writer. Workers are *only* for search; the Writer composes the report alone. |
+| **Orchestrator–worker architecture** with a single-shot Writer (Anthropic; matches consensus that multi-agent wins for breadth-first research, single-agent wins for tight output coordination) | Planner + parallel Workers + single-shot Writer + optional CitationAgent. Workers are *only* for search; the Writer composes the report alone. |
 | **Subagent context isolation** ("search is compression") | Each phase runs in a separate `pi -p --mode json` process. Parent never inherits worker stack frames. |
-| **Configurable breadth × depth × concurrency** with hard caps | `breadth ≤ 8`, `depth ≤ 3`, `concurrency ≤ 8`, `max_sources ≤ 50`, plus per-subagent timeout (10 min). |
+| **Configurable breadth × depth × concurrency with hard caps** | `breadth ≤ 8`, `depth ≤ 3`, `concurrency ≤ 8`, `max_sources ≤ 50`, plus per-subagent timeout (10 min). |
+| **Anthropic-style effort scaling** ("simple → 1 agent + 3-10 calls; complex → 10+") | `effort_tier` with `auto` / `fact` / `comparison` / `complex`; planner can choose tier in `auto` mode and tier caps the effective breadth. |
+| **Breadth decay over recursion** (GPT-Researcher's `max(2, breadth // 2)`) | `breadth_decay: true` (default). |
 | **Counter-evidence sub-question** (mitigates confirmation bias) | Planner prompt requires at least one counter-evidence question. |
 | **Confidence labels on every claim** | Workers tag each fact `verified` / `single-source` / `inferred` / `uncertain`. Writer renders these as ✓ / ◐ / ? / ?. |
 | **Surfaced disagreements** | Workers populate `disagreements[]`; Writer is required to render them inline ("Sources differ on X: [1]…[3]…"). |
-| **Post-hoc citation attribution** (Anthropic CitationAgent pattern; more reliable than inline citation generation) | Writer receives a deduped, numbered Source list and is restricted to citing only those indices. Findings carry pre-mapped `sources_used` indices. |
-| **Hallucination guard on citations** | Writer prompt explicitly forbids inventing URLs/titles/facts; only the numbered list is permitted. |
+| **Post-hoc citation attribution** (Anthropic CitationAgent pattern) | Two-layer: (1) Writer is constrained to a deduped, numbered Source list with pre-mapped `sources_used` indices; (2) optional CitationAgent 5th phase audits the draft, repairs miscited claims, and flags unsupported ones. |
+| **E1 URL-resolve verification** (LiveResearchBench's E1 step; closes the cheapest hallucinated-citation failure mode) | HEAD-check every cited URL after the Writer; tag `[N]💀` in the report; full results in `manifest.url_checks`. |
+| **Hallucination guard on citations** | Writer prompt forbids inventing URLs/titles/facts; only the numbered list is permitted. CitationAgent verifies. |
 | **Indirect-prompt-injection mitigation** (OWASP LLM Top 10 #1) | Worker prompt declares fetched content untrusted; injection attempts must be recorded verbatim in `disagreements`. Workers also have *no* write/edit/bash tools — least privilege by construction. |
-| **AI-disclosure header on report** (ICMJE/COPE/WAME consensus) | Every report opens with a frontmatter block + warning ("AI cannot be an author; verify before relying"). |
-| **Provenance manifest** | `manifest.json` records run id, query, brief, config, plan, every subagent run with usage/cost, all findings, deduped sources, and the report path. |
+| **Lethal-trifecta egress block** (Simon Willison; OpenAI's "no arbitrary URL construction" mitigation) | `web_fetch` refuses URLs whose query strings contain `api_key` / `secret` / `token` / `password` / `auth` / `bearer` keys, oversized opaque blobs (>300 chars base64-shaped), or whose protocol is not HTTP(S). Optional `egress_allowlist` / `egress_blocklist` per query. |
+| **AI-disclosure header on report** (ICMJE/COPE/WAME consensus; preset adds domain-specific extras) | Every report opens with a frontmatter block + warning ("AI cannot be an author; verify before relying"); presets add an extra warning line (Mata v. Avianca for legal, JMIR ~26.57% fabricated-citation finding for medical, etc.). |
+| **Per-phase model cascade** (Anthropic Opus-lead/Sonnet-subagent; OpenAI o3 + o3-mini summarizer) | Independent `planner_model` / `worker_model` / `writer_model` / `citation_model` overrides plus matching `*_thinking` levels. |
+| **Domain presets** (raises verification bar for high-stakes queries) | `preset: legal | medical | academic | financial` overlays source preferences, a stricter checklist, an extra disclosure line, and a min-sources-per-claim bar. |
+| **Structured brief** (the seven-element brief Doc-C describes — audience/objective/scope/sources/recency/format/checklist) | Typed `brief` schema with `audience`, `scope_in/out`, `source_prefer/avoid`, `must_address`, `recency_bound`, `target_words`. Composes with free-form `instructions` and presets. |
+| **Web-fetch escalation** (Jina Reader for JS-heavy pages) | Direct HTTP first; auto-escalates to Jina if `JINA_API_KEY` is set and the page came back sparse/empty. If `JINA_API_KEY` is set, Jina is preferred from the start (fall back to direct). |
+| **Provenance manifest with full lineage** | `manifest.json` records run id, query, brief, preset, config, plan, every subagent run with usage/cost/turns/model, all findings, deduped sources, URL-check results, dead-link indices, and the report path. |
+| **Reproducibility metadata** (Doc-B reproducibility checklist) | Manifest captures `extension_version`, `node_version`, `platform`, `arch`, `search_provider`, `jina_configured`, plus per-phase models actually used (resolved from pi's events). |
 | **Cost & turn tracking** | Each phase parses `pi --mode json` events; manifest aggregates `input` / `output` / `cost` / `turns` / `toolCalls`. |
 | **Cancellation & timeouts** | All children honor the parent `AbortSignal`; per-subagent SIGTERM→SIGKILL with grace; partial failures are tolerated. |
 | **Graceful partial failure** | A failed worker is recorded as such; remaining workers and the writer still proceed. |
-| **Reproducibility** | Manifest + plan + per-run config are sufficient to re-execute. Subagents start with `--no-skills --no-context-files --no-prompt-templates --no-session` for clean isolation. |
 
 ---
 
 ## What this does NOT do (deliberate scope limits)
 
-- **Does not auto-verify citations.** Industry data shows even RAG-grounded vendor tools hallucinate cites at ~17–33%. The disclosure header tells the user to spot-check; the manifest tells them where to look.
-- **Does not include a separate evaluator/judge.** Adding one without a calibrated "good enough" threshold creates infinite-loop failure modes ("skeptic loop"). The Writer's grounding constraints are simpler and more reliable.
-- **Does not search local docs.** For grounded-corpus research (NotebookLM-style), use a different tool — open-web deep research has a different failure profile.
+- **Does not perform full E2/E3 entailment-grade verification.** E1 (URL-resolves) is automated — the cheapest failure mode is closed. E2 (URL is topically relevant) and E3 (content actually supports the claim) require running another LLM pass and substantial cost; the disclosure header tells the user to spot-check, the CitationAgent flags clearly miscited claims, and the manifest tells them where to look. This is the intended division of labor between automation and human verification.
+- **Does not include a separate evaluator/judge agent.** Adding one without a calibrated "good enough" threshold creates infinite-loop failure modes ("skeptic loop"). The CitationAgent has a deterministic single-pass scope and cannot loop.
+- **Does not search local docs by default.** Use `extra_worker_tools` to grant workers MCP-provided tools registered globally in pi for proprietary-corpus research.
 - **Does not bypass enterprise data policy.** It uses your shell environment and pi's configured model. Run it on enterprise-tier LLM accounts (zero data retention) for sensitive work.
 
 ---
@@ -107,9 +208,9 @@ Slash command: tells the LLM to state its scope interpretation, then call `deep_
 ## Output layout
 
 ```
-.deep-research/2026-05-05T14-32-07-123Z/
-├── report.md       # disclosure header + cited markdown report
-└── manifest.json   # full provenance: plan, findings, sources, runs, usage
+.deep-research/2026-05-08T14-32-07-123Z/
+├── report.md       # disclosure header (+preset extras) + cited markdown report
+└── manifest.json   # full provenance: env, plan, findings, sources, url_checks, runs, usage
 ```
 
 `report.md` opens with:
@@ -117,32 +218,43 @@ Slash command: tells the LLM to state its scope interpretation, then call `deep_
 ```markdown
 ---
 generated_by: pi-deep-research
-generated_at: 2026-05-05T14:32:07.123Z
+extension_version: 0.2.0
+generated_at: 2026-05-08T14:32:07.123Z
 duration_ms: 632108
 query: "..."
-breadth: 4
-depth: 1
-concurrency: 4
+breadth: 5
+effective_breadth: 4
+depth: 2
+concurrency: 5
+effort_tier: comparison
+preset: financial
 unique_sources: 22
 workers_total: 4
 workers_failed: 0
+dead_link_citations: 1
+citation_agent: enabled
+url_verify: enabled
 total_cost_usd: 0.4781
 ---
 
 > ⚠️  This report was generated by an autonomous AI deep-research agent...
+>
+> 💀 1 cited URL(s) failed HEAD verification — see annotated [N]💀 markers...
+>
+> ⚠️ FINANCIAL DOMAIN: This output is NOT investment, accounting, or compliance advice...
 
 ---
 
 ## TL;DR
 - ✓ Claim with strong support [1][3].
-- ◐ Single-source claim [4].
+- ◐ Single-source claim [4]💀.
 - ? Inferred claim [2].
 
 ## ...
 
 ## Sources
-[1] Title — https://...
-[2] Title — https://...
+[1] Title [2025-01-12] — https://...
+[2] Title [2024-11-30] — https://...
 ```
 
 ---
@@ -150,20 +262,52 @@ total_cost_usd: 0.4781
 ## Architecture choices (and the trade-offs behind them)
 
 - **Why orchestrator-worker with a single-shot Writer, not full multi-agent everywhere?** Because parallel sub-agents writing parts of one document produce disjoint outputs (the well-documented Cognition / LangChain finding). Multi-agent is a research-phase optimization; single-agent writing keeps the report coherent.
-- **Why post-hoc citations rather than inline-as-the-Writer-writes?** Writers attaching citations during composition is the highest-fabrication path. Pre-deduping the source list and constraining the Writer to numeric indices into that list materially reduces invented URLs.
+- **Why a separate CitationAgent rather than inline citation generation alone?** Anthropic's documented experience: post-hoc citation attribution is materially more reliable than asking the synthesis model to attach citations during composition. The CitationAgent runs once, deterministically, with the source list and `sources_used` indices in front of it.
+- **Why HEAD-only URL verification (E1) and not entailment (E3)?** E1 catches the cheapest and most embarrassing failure mode (broken/invented URLs) for ~$0 in LLM cost. E3 (does the page actually support the claim?) requires a second LLM pass per claim and is what the human verifier is for.
+- **Why an effort tier instead of a flat breadth knob?** Anthropic's lead-agent prompt encodes effort tiers explicitly (`simple → 1 agent + 3-10 calls`; `complex → 10+ subagents`). Without tier-aware breadth, a `breadth=8` factoid query spawns 8 wasteful workers.
 - **Why subprocess isolation rather than threads or async-only?** Each subagent gets its own context window (no cross-contamination), its own retry behavior, and its own SIGTERM kill switch. A single hung worker cannot brick the run.
-- **Why no "evaluator" / "skeptic" agent?** Without a calibrated "good enough" threshold, evaluators trap orchestrators in infinite loops. The constraints we *do* enforce (counter-evidence question, confidence labels, source restriction, disagreement surfacing) are deterministic and bias-mitigating without that risk.
+- **Why no "evaluator" / "skeptic" agent?** Without a calibrated "good enough" threshold, evaluators trap orchestrators in infinite loops. The CitationAgent runs once and cannot loop; the constraints we *do* enforce (counter-evidence question, confidence labels, source restriction, disagreement surfacing, URL verify) are deterministic.
 - **Why hard caps on breadth/depth/concurrency?** Token spend explains the bulk of variance on hard browsing benchmarks, and unbounded recursion is the easy way to a $50 query. Caps keep cost predictable.
+- **Why per-phase model overrides?** Workers do most of the token volume but benefit least from reasoning capacity; Writer/CitationAgent benefit most. The per-phase override is the single biggest cost optimization available — see [model cascading](#model-cascading-recipes).
+
+---
+
+## Model cascading recipes
+
+Default behavior uses pi's configured model for every phase. For better cost / quality, cascade:
+
+```ts
+// Cheap workers, reasoning Writer + Citation
+deep_research({
+  query: "...",
+  worker_model: "anthropic/claude-haiku-4",
+  worker_thinking: "low",
+  writer_model: "anthropic/claude-opus-4",
+  writer_thinking: "high",
+  citation_model: "anthropic/claude-sonnet-4",
+});
+
+// Open-weight workers, frontier writer
+deep_research({
+  query: "...",
+  worker_model: "openrouter/qwen/qwen3-235b",
+  writer_model: "openai/o3",
+  writer_thinking: "high",
+});
+```
+
+The manifest records the model that pi actually selected per phase (resolved from JSON events), so you can audit what cascade ran end-to-end.
 
 ---
 
 ## Verifying citations (recommended human workflow)
 
-1. Open `report.md`. Pick 3–5 random `[N]` citations supporting load-bearing claims.
+1. Open `report.md`. Pick 3–5 random `[N]` citations supporting load-bearing claims; **start with any `[N]💀` markers**.
 2. Cross-reference each `[N]` to the `## Sources` list. Open the URL.
 3. Confirm the cited passage exists and entails the claim. Reject if not.
 4. Independently search for one disagreement claim ("Sources differ…"). Confirm both sides exist.
-5. For high-stakes outputs (legal, medical, financial), verify *every* citation and inspect `manifest.json → findings[].key_facts` for confidence labels weaker than `verified`.
+5. For high-stakes outputs (legal, medical, financial), verify *every* citation and inspect `manifest.json → findings[].key_facts` for confidence labels weaker than `verified`. Make sure `manifest.preset` matches the domain.
+6. If the report has a "## Citation audit" section, read it — it lists repaired counts and any `[unsupported]` claims the CitationAgent flagged.
 
 This step is not optional. It is the difference between deep research as a research tool and deep research as a Mata-v.-Avianca incident.
 
@@ -177,9 +321,9 @@ This step is not optional. It is the difference between deep research as a resea
 | `BRAVE_API_KEY` | " | Use Brave Search for `web_search`. |
 | `EXA_API_KEY` | " | Use Exa for `web_search` (neural/semantic). |
 | `SERPAPI_API_KEY` | " | Use SerpAPI (Google SERP proxy) for `web_search`. |
-| `JINA_API_KEY` | optional | Route `web_fetch` through Jina Reader (handles JS, cleaner extraction). |
+| `JINA_API_KEY` | optional | Route `web_fetch` through Jina Reader (handles JS, cleaner extraction). When set, Jina is preferred from the start; without it, direct HTTP is used and Jina is not available for escalation. |
 
-The model used by every subagent is whatever `pi` is configured to use. Set with `pi --model …` or in `~/.pi/agent/settings.json` before invoking. (For research workloads, prefer reasoning models for the Planner and Writer; non-reasoning is fine for Workers.)
+Per-phase models are configured via tool params (`planner_model`, `worker_model`, `writer_model`, `citation_model`); pi's configured default is used when an override is not set. (`pi --model …` or `~/.pi/agent/settings.json` controls the default; for research workloads, prefer reasoning models for the Planner/Writer/CitationAgent and a non-reasoning model for Workers.)
 
 ---
 
