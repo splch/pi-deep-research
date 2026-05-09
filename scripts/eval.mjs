@@ -53,9 +53,8 @@ function findManifests(p) {
 	return out;
 }
 
-// Two flavors: a `g`-flag regex for matchAll (which uses its own iterator state)
-// and a non-global twin for `.test()` calls. Reusing a single g-flagged regex
-// with .test() would advance lastIndex across calls and silently undercount.
+// CITE_RE is for matchAll (own iterator state); CITE_RE_TEST is for .test() calls,
+// which would advance lastIndex across .filter() calls if shared with the g-flag form.
 const CITE_RE = /\[(\d+)\](?:💀)?/g;
 const CITE_RE_TEST = /\[(\d+)\](?:💀)?/;
 const STRIP = (s) => s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
