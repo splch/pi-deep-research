@@ -798,7 +798,6 @@ const Params = Type.Object({
 	citation_audit: Opt(Type.Boolean({ description: "Run post-hoc CitationAgent that audits/repairs citations.", default: true })),
 	verify_urls: Opt(Type.Boolean({ description: "HEAD-check every cited URL (E1).", default: true })),
 	safe_check: Opt(Type.Boolean({ description: "Run SAFE-style atomic-fact pass with independent web_search between Writer and CitationAgent (extra cost).", default: false })),
-	worker_tool_cap: Opt(Type.Union([Type.Integer({ minimum: 1, maximum: 200 }), Type.Null()], { description: "Optional hard cap on tool calls per worker. Default: no cap." })),
 	planner_model: Opt(Str("Model override for the Planner phase.")),
 	worker_model: Opt(Str("Model override for Workers (cheap recommended).")),
 	writer_model: Opt(Str("Model override for the Writer (reasoning recommended).")),
