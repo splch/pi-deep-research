@@ -21,7 +21,7 @@
 
 ## Reporting
 
-Email security reports to the address in the `CODEOWNERS` file (or, failing that, the maintainer's GitHub profile email). Please include:
+Open a private security advisory at <https://github.com/splch/pi-deep-research/security/advisories/new>. If GitHub Security Advisories are unavailable to you, fall back to the maintainer's email on their GitHub profile (<https://github.com/splch>) with subject prefix `[pi-deep-research SECURITY]`. Please include:
 
 - Affected version (`extension_version` from a recent `manifest.json` is ideal).
 - Proof-of-concept showing the bypass, with a clear "expected vs. actual" outcome.

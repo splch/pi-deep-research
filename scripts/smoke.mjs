@@ -146,5 +146,24 @@ const regMerged = m.mergePreset({ source_prefer: ["x"] }, "regulatory");
 assert.equal(regMerged.preset.name, "regulatory");
 assert.ok(regMerged.brief.source_prefer.some((s) => /NIST|ISO/i.test(s)));
 
+// --- Stateful-regex guard for scripts/eval.mjs ------------------------------
+// Regression test for a real bug we shipped: using a `g`-flag regex with .test()
+// in a .filter() callback advances lastIndex across calls and undercounts.
+const gRe = /\[(\d+)\]/g;
+const nonGRe = /\[(\d+)\]/;
+const sentsCite = [
+	"First sentence has citation [1] here in the middle of the text body.",
+	"Second sentence with citation [2] also here in the body of the text.",
+	"Third sentence has [3] cited too in the right area of the body text.",
+	"Fourth sentence with citation [4] near end of line of body text.",
+	"Fifth sentence cite [5] at this position in the long-enough body text.",
+];
+// The buggy form: shared g-regex across .test() calls undercounts.
+gRe.lastIndex = 0;
+const buggy = sentsCite.filter((s) => gRe.test(s)).length;
+const correct = sentsCite.filter((s) => nonGRe.test(s)).length;
+assert.equal(correct, 5, "non-global regex counts all five");
+assert.ok(buggy < correct, `g-flag .test() must undercount (got buggy=${buggy}, correct=${correct})`);
+
 console.log("✓ all smoke tests passed");
 rmSync(dir, { recursive: true, force: true });

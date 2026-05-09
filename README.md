@@ -11,9 +11,14 @@ Multi-agent deep research extension for [pi](https://github.com/badlogic/pi-mono
 │ questions    │   │ structured   │   │ draft.md     │   │ links        │   │ repaired md  │
 │              │   │ findings     │   │              │   │              │   │              │
 └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
+                                                            ▲
+                                              optional ---  │
+                                              SAFE phase    │
+                                              (safe_check)  │
+                                              ✅ ⚠️ ❓  ────┘
 ```
 
-URL verification runs **before** the CitationAgent so the agent receives the dead-link map and can mark `[N]💀` directly while it audits citations. If the CitationAgent is disabled, the orchestrator inlines the `💀` markers itself.
+URL verification runs **before** the CitationAgent so the agent receives the dead-link map and can mark `[N]💀` directly while it audits citations. If the CitationAgent is disabled, the orchestrator inlines the `💀` markers itself. The optional SAFE phase (`safe_check: true`) slots in between URL verify and the CitationAgent, decomposes the draft into atomic claims, runs INDEPENDENT `web_search`, and annotates checked claims with `[fact-check: ✅|⚠️|❓]`. The CitationAgent prompt is told to preserve those annotations verbatim.
 
 Each subagent is a separate `pi -p --mode json` process (isolated context window, least-privilege tool set). The same extension is re-injected into children via `-e <self>`, so workers inherit `web_search` and `web_fetch` and nothing else.
 
@@ -50,27 +55,31 @@ Multi-agent orchestrator. Use only for questions a human analyst would take 4+ h
 
 **Core parameters**
 
-| Param | Default | Caps | Meaning |
+| Param | Default | Min | Meaning |
 |---|---|---|---|
 | `query` | — | — | The research question. |
 | `brief` | — | — | **Structured brief** — see [Structured brief](#structured-brief). |
 | `preset` | — | — | `legal` \| `medical` \| `academic` \| `financial` \| `regulatory` — overlays sources, raises verification bar, adds a domain-specific disclosure. |
 | `language` | — | — | Primary language for searches and report (e.g. `English`, `Deutsch`, `日本語`). |
-| `breadth` | 4 | 1–8 | Parallel sub-questions per level (cap; effort tier may shrink it further). |
-| `depth` | 1 | 1–3 | Recursion levels (each adds a planner+workers round). |
-| `concurrency` | = `breadth` | 1–8 | Max parallel worker subagents. |
-| `max_sources` | 25 | 1–50 | Max unique sources cited in the final report. |
-| `max_total_usd` | — | — | Soft USD cap. Run aborts gracefully and writes partial results when exceeded. |
+| `breadth` | 4 | 1 | Parallel sub-questions per level. |
+| `depth` | 1 | 1 | Recursion levels (each adds a planner+workers round). |
+| `concurrency` | = `breadth` | 1 | Max parallel worker subagents. |
+| `max_sources` | 25 | 1 | Max unique sources cited in the final report. |
+| `max_per_domain` | 5 | 1 | Max sources from any single host in the deduped Sources list — a domain-diversity floor that prevents one site from dominating. |
+| `max_total_usd` | — | 0 | Soft USD cap. Run aborts gracefully and writes partial results when exceeded. |
 | `output_dir` | `./.deep-research/<ts>-<slug>/` | — | Where `report.md` + `manifest.json` are written. |
+
+No upper bounds are enforced on `breadth` / `depth` / `concurrency` / `max_sources` / `max_per_domain` / `target_words`. The natural ceilings are your `max_total_usd` cost cap, your search-provider rate limits, and the per-subagent 10-minute wall-clock timeout.
 
 **Quality / cost dials**
 
 | Param | Default | Meaning |
 |---|---|---|
-| `effort_tier` | `auto` | `fact` (≤2 subq), `comparison` (≤4), `complex` (= breadth), or `auto` (planner picks). Caps breadth. |
+| `effort_tier` | `auto` | `fact` / `comparison` / `complex` / `auto`. Advisory only — the planner uses the tier to decide how many sub-questions to emit (`fact` typically 1–2, `comparison` 3–5, `complex` up to your breadth). The tier never silently shrinks a user-set breadth. |
 | `breadth_decay` | `true` | Halve breadth at each recursion level (`max(2, breadth // 2)`). |
 | `citation_audit` | `true` | Run a 5th-phase auditor that repairs miscited claims and marks 💀 dead links. |
 | `verify_urls` | `true` | HEAD-check every cited URL. Failed URLs are tagged `[N]💀` in the report. |
+| `safe_check` | `false` | Run a SAFE-style atomic-fact pass with INDEPENDENT `web_search` between Writer and CitationAgent (Wei et al., DeepMind 2024). Annotates checked claims with ` [fact-check: ✅\|⚠️\|❓]` and appends a `## Fact-check audit` section. Adds ~1 worker's worth of cost. |
 | `brief.recency_bound` | — | ISO date — older sources get downgraded to "uncertain" unless canonical. |
 
 **Per-phase model & thinking overrides**
@@ -83,6 +92,7 @@ The dominant cost lever in practice. Workers do bulk extraction (cheap models OK
 | `worker_model` / `worker_thinking` | Override pi's model / thinking level for Workers. |
 | `writer_model` / `writer_thinking` | Override pi's model / thinking level for the Writer. |
 | `citation_model` / `citation_thinking` | Override pi's model / thinking level for the CitationAgent. |
+| `safe_check_model` / `safe_check_thinking` | Override the model / thinking level for the SAFE fact-checker (only consulted when `safe_check: true`). Defaults to `worker_model` / `worker_thinking`; reasoning models are recommended since SAFE has to decompose claims atomically. |
 
 `thinking` accepts `off | minimal | low | medium | high | xhigh`.
 
@@ -102,7 +112,7 @@ Provider-agnostic search. Picks whichever of `TAVILY_API_KEY` (preferred), `BRAV
 
 ### `web_fetch(url)`
 
-Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks. Output truncated to 50KB. Returns `content_sha256` in tool details for provenance.
+Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks. Output is not truncated by this tool — oversized pages are managed by pi's runtime context-window handling. Returns `content_sha256` in tool details for provenance.
 
 ### `/research <query>`
 
@@ -177,10 +187,10 @@ Presets do not change the architecture — they raise the bar and pre-fill the b
 |---|---|
 | **Orchestrator–worker architecture** with a single-shot Writer (Anthropic; matches consensus that multi-agent wins for breadth-first research, single-agent wins for tight output coordination) | Planner + parallel Workers + single-shot Writer + CitationAgent. Workers are *only* for search; the Writer composes the report alone. |
 | **Subagent context isolation** ("search is compression") | Each phase runs in a separate `pi -p --mode json` process. Parent never inherits worker stack frames. |
-| **Configurable breadth × depth × concurrency with hard caps** | `breadth ≤ 8`, `depth ≤ 3`, `concurrency ≤ 8` (defaults to breadth), `max_sources ≤ 50`, plus per-subagent timeout (10 min). |
-| **Anthropic-style effort scaling** ("simple → 1 agent + 3-10 calls; complex → 10+") | `effort_tier` with `auto` / `fact` / `comparison` / `complex`; planner can choose tier in `auto` mode and tier caps the effective breadth. |
+| **User-driven breadth × depth × concurrency** with cost-cap + wall-clock backstops | `breadth`, `depth`, `concurrency`, `max_sources` are all unbounded above; the natural ceilings are `max_total_usd`, search-provider rate limits, and the 10-minute per-subagent timeout. |
+| **Anthropic-style effort scaling** ("simple → 1 agent + 3-10 calls; complex → 10+") | `effort_tier` with `auto` / `fact` / `comparison` / `complex`; planner reads the tier as advice for how many sub-questions to emit. Advisory only — it does not silently shrink a user-set breadth. |
 | **Breadth decay over recursion** (GPT-Researcher's `max(2, breadth // 2)`) | `breadth_decay: true` (default). |
-| **Explicit search budget per worker** (≤8 searches, ≤6 fetches, stop-after-3-empty rule) | Worker prompt enforces this hard cap. |
+| **Explicit search budget per worker** (≤8 searches, ≤6 fetches, stop-after-3-empty rule) | Worker prompt enforces this hard cap cooperatively; the per-subagent 10-minute timeout backstops runaway loops. |
 | **Required publication date** on every cited source | Worker output schema requires `publication_date` per source; presets that demand it forbid `unknown`. |
 | **Triangulation for "verified" claims** | Worker prompt requires ≥2 INDEPENDENT sources for a `verified` label; same author/org doesn't count as independent. |
 | **Counter-evidence sub-question** (mitigates confirmation bias) | Planner prompt requires at least one counter-evidence question. |
@@ -194,6 +204,8 @@ Presets do not change the architecture — they raise the bar and pre-fill the b
 | **AI-disclosure header on report** (ICMJE/COPE/WAME consensus; preset adds domain-specific extras) | Every report opens with a frontmatter block + warning ("AI cannot be an author; verify before relying"); presets add an extra warning line. |
 | **Per-phase model cascade** (Anthropic Opus-lead/Sonnet-subagent; OpenAI o3 + o3-mini summarizer) | Independent `planner_model` / `worker_model` / `writer_model` / `citation_model` overrides plus matching `*_thinking` levels. |
 | **Domain presets** (raises verification bar for high-stakes queries) | `legal | medical | academic | financial | regulatory` overlays source preferences, a stricter checklist, an extra disclosure line, and a min-sources-per-claim bar. |
+| **Domain-diversity floor** (mitigates single-source dominance) | `max_per_domain` caps the number of sources from any single host in the deduped Sources list (default 5). |
+| **Optional SAFE-style atomic-fact verification** (Wei et al., DeepMind 2024) | `safe_check: true` runs an independent fact-checker between Writer and CitationAgent that decomposes claims and verifies via fresh `web_search` (≤6 search + ≤3 fetch). Annotations (`✅ ⚠️ ❓`) are preserved verbatim by the CitationAgent. |
 | **Structured brief** (the seven-element brief Doc-C describes — audience/objective/scope/sources/recency/format/checklist) | Typed `brief` schema with `audience`, `scope_in/out`, `source_prefer/avoid`, `must_address`, `recency_bound`, `target_words`, `notes`. |
 | **Multilingual research** | `language` parameter is propagated into the brief preamble for all phases. |
 | **Web-fetch escalation** (Jina Reader for JS-heavy pages) | Direct HTTP first; auto-escalates to Jina if `JINA_API_KEY` is set and the page came back sparse/empty. If `JINA_API_KEY` is set, Jina is preferred from the start (fall back to direct). |
@@ -233,7 +245,6 @@ duration_ms: 632108
 query: "..."
 language: English
 breadth: 5
-effective_breadth: 4
 depth: 2
 concurrency: 5
 effort_tier: comparison
@@ -280,12 +291,13 @@ total_cost_usd: 0.4781
   "schema_version": 4,
   "run":         { "id": "...", "started_at": "...", "duration_ms": ..., "report_path": "...", "cost_cap_hit": false, "abort_reason": null },
   "request":     { "query": "...", "brief": {...}, "brief_resolved": {...}, "preset": "financial", "language": "English" },
-  "config":      { "breadth": 5, "effective_breadth": 4, "depth": 2, "concurrency": 5,
-                   "max_sources": 30, "max_total_usd": 10.0, "breadth_decay": true,
+  "config":      { "breadth": 5, "depth": 2, "concurrency": 5,
+                   "max_sources": 30, "max_per_domain": 5, "max_total_usd": 10.0, "breadth_decay": true,
                    "effort_tier": "comparison", "citation_audit": true, "url_verify": true,
+                   "safe_check": false,
                    "host_allowlist": [], "host_blocklist": [], "extra_worker_tools": [],
-                   "models":   { "planner": "...", "worker": "...", "writer": "...", "citation": "..." },
-                   "thinking": { "planner": "...", "worker": "...", "writer": "...", "citation": "..." } },
+                   "models":   { "planner": "...", "worker": "...", "writer": "...", "citation": "...", "safe_check": null },
+                   "thinking": { "planner": "...", "worker": "...", "writer": "...", "citation": "...", "safe_check": null } },
   "environment": { "extension_version": "0.4.0",
                    "node_version": "v24.15.0", "platform": "darwin", "arch": "arm64",
                    "search_provider": "tavily", "jina_configured": true },
@@ -294,7 +306,12 @@ total_cost_usd: 0.4781
   "sources":  [...],
   "url_checks": [...],
   "dead_link_indices": [...],
-  "runs": [ { "phase": "planner", "level": null, ... }, { "phase": "worker", "level": 1, ... }, ... ],
+  "runs": [ { "phase": "planner", "level": null, ... }, { "phase": "worker", "level": 1, ... },
+            // The failed first attempt is recorded as "worker"; the successful
+            // retry is recorded as "worker[retry]". Both rows count toward
+            // usage.cost and the max_total_usd check (pre-fix runs lost the
+            // first attempt's cost).
+            ... ],
   "usage": { "input": ..., "output": ..., "cost": ..., "turns": ..., "toolCalls": ... }
 }
 ```
@@ -306,10 +323,10 @@ total_cost_usd: 0.4781
 - **Why orchestrator-worker with a single-shot Writer, not full multi-agent everywhere?** Because parallel sub-agents writing parts of one document produce disjoint outputs (the well-documented Cognition / LangChain finding). Multi-agent is a research-phase optimization; single-agent writing keeps the report coherent.
 - **Why a separate CitationAgent rather than inline citation generation alone?** Anthropic's documented experience: post-hoc citation attribution is materially more reliable than asking the synthesis model to attach citations during composition. The CitationAgent runs once, deterministically, with the source list and `sources_used` indices in front of it.
 - **Why HEAD-only URL verification (E1) and not entailment (E3)?** E1 catches the cheapest and most embarrassing failure mode (broken/invented URLs) for ~$0 in LLM cost. E3 (does the page actually support the claim?) requires a second LLM pass per claim and is what the human verifier is for.
-- **Why an effort tier instead of a flat breadth knob?** Anthropic's lead-agent prompt encodes effort tiers explicitly (`simple → 1 agent + 3-10 calls`; `complex → 10+ subagents`). Without tier-aware breadth, a `breadth=8` factoid query spawns 8 wasteful workers.
+- **Why an effort tier as advice, not a clamp?** Anthropic's lead-agent prompt encodes effort tiers explicitly (`simple → 1 agent + 3-10 calls`; `complex → 10+ subagents`). The tier is forwarded to the planner so it self-regulates ("pick the smallest that fits"); it does not silently shrink a user-set breadth, because that's the kind of magic-number-clamp behavior that confounds users with legitimate breadth needs.
 - **Why subprocess isolation rather than threads or async-only?** Each subagent gets its own context window (no cross-contamination), its own retry behavior, and its own SIGTERM kill switch. A single hung worker cannot brick the run.
 - **Why no "evaluator" / "skeptic" agent?** Without a calibrated "good enough" threshold, evaluators trap orchestrators in infinite loops. The CitationAgent runs once and cannot loop; the constraints we *do* enforce (counter-evidence question, confidence labels, source restriction, disagreement surfacing, URL verify) are deterministic.
-- **Why hard caps on breadth/depth/concurrency *and* an optional `max_total_usd`?** Token spend explains the bulk of variance on hard browsing benchmarks. Caps alone keep cost bounded; the USD cap gives a hard ceiling for budgeted runs and writes partial results when hit.
+- **Why no hard caps on breadth/depth/concurrency, only `max_total_usd` and a wall-clock timeout?** Hard numeric caps are arbitrary (why 8? why 50?) and silently confound users who legitimately need more. Token spend explains the bulk of variance on hard browsing benchmarks, so the right ceiling is denominated in dollars (`max_total_usd`) and seconds (`MAX.subagentMs`), not in subquestion count. The user picks the shape; the cost cap and provider rate limits enforce the size.
 - **Why per-phase model overrides?** Workers do most of the token volume but benefit least from reasoning capacity; Writer/CitationAgent benefit most. The per-phase override is the single biggest cost optimization available — see [model cascading](#model-cascading-recipes).
 
 ---
@@ -347,6 +364,38 @@ deep_research({
 ```
 
 The manifest records the model that pi actually selected per phase (resolved from JSON events), so you can audit what cascade ran end-to-end.
+
+---
+
+## Development
+
+```bash
+npm run check    # tsc --noEmit
+npm run smoke    # pure-helper tests for exfilCheck, dedupeSources, briefBlock,
+                 # parsePlan, parseWorker, hashFinding, canonicalUrl, PRESETS,
+                 # plus a stateful-regex guard for scripts/eval.mjs.
+npm test         # both of the above
+```
+
+### Evaluating runs offline
+
+```bash
+node scripts/eval.mjs .deep-research                  # all manifests under .deep-research/
+node scripts/eval.mjs path/to/manifest.json           # one specific run
+node scripts/eval.mjs run-a/ run-b/ run-c/            # macro-avg + cost-Pareto frontier
+```
+
+Reports a TSV row per run plus a macro-average summary:
+
+| Metric | Definition |
+|---|---|
+| `cite_resolves` | Fraction of `[N]` citations that resolve to a valid index `[1, |sources|]`. ALCE's "validity" measure. **Note**: this is structurally an upper bound on real claim-level entailment precision — it confirms the index points to a real source, not that the source supports the claim. Use the human-verifier workflow + a domain preset for higher-bar checks. |
+| `cite_supported` | Fraction of citations whose `[N]` appears in some finding's `sources_used`. By construction this is mostly identical to `cite_resolves`; it diverges only on rare orphan-index cases. |
+| `recall` | Non-trivial declarative sentences (≥12 words; not heading/bullet/quote) that carry ≥1 citation. |
+| `conf_hygiene` | Fraction of non-trivial sentences that carry a confidence marker (`✓ ◐ ?`). Capped at 1. |
+| `dead_rate` | Fraction of cited URLs that failed HEAD verification. |
+
+The Pareto frontier identifies non-dominated runs on `(cost_usd ↓, cite_resolves ↑, recall ↑)`.
 
 ---
 
