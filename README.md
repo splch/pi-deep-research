@@ -112,7 +112,9 @@ Provider-agnostic search. Picks whichever of `TAVILY_API_KEY` (preferred), `BRAV
 
 ### `web_fetch(url)`
 
-Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks. Output is not truncated by this tool — oversized pages are managed by pi's runtime context-window handling. Returns `content_sha256` in tool details for provenance.
+Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks. Output is truncated to **200 000 bytes** (~50 K tokens) by default; raise via `PI_DR_MAX_FETCH_BYTES` if you need bigger primary sources. Returns `content_sha256` and a `truncated_at` byte offset (or `null`) in tool details for provenance.
+
+The truncation is essential: pi does not truncate tool results, so a worker doing 3–4 big fetches (long-form blog + paper + Wikipedia article) easily stacks past a 1M-token context on the next turn and the model API rejects the prompt. The 200 KB / 6-fetch budget keeps a worker comfortably under 1M tokens.
 
 > **Tool ownership.** When this extension is loaded, it registers `web_search` and `web_fetch` on `session_start` and **takes ownership of those tool names**, overriding any builtin pi-coding-agent tools (e.g. the Ollama-backed search/fetch tools that ship with pi by default). Without this, a user who sets `TAVILY_API_KEY` would still silently hit pi's builtin search. If you want pi's builtins instead, do not load this extension.
 
@@ -424,6 +426,8 @@ This step is not optional. It is the difference between deep research as a resea
 | `EXA_API_KEY` | " | Use Exa for `web_search` (neural/semantic). |
 | `SERPAPI_API_KEY` | " | Use SerpAPI (Google SERP proxy) for `web_search`. |
 | `JINA_API_KEY` | optional | Route `web_fetch` through Jina Reader (handles JS, cleaner extraction). When set, Jina is preferred from the start; without it, direct HTTP is used and Jina is not available for escalation. |
+| `PI_DR_MAX_FETCH_BYTES` | optional | Per-fetch byte cap on `web_fetch` output. Default 200 000 (~50 K tokens). Raise for runs against very large primary sources (10-K filings >2 MB, long PDFs); the budget should stay below `1_000_000 / max_fetches_per_worker` to keep workers under a 1M-token context. |
+| `PI_DR_HOST_ALLOWLIST` / `PI_DR_HOST_BLOCKLIST` | optional | Comma-separated host patterns enforced architecturally at `web_fetch` (also settable per-call via `host_allowlist`/`host_blocklist`). |
 
 Per-phase models are configured via tool params (`planner_model`, `worker_model`, `writer_model`, `citation_model`); pi's configured default is used when an override is not set. (`pi --model …` or `~/.pi/agent/settings.json` controls the default; for research workloads, prefer reasoning models for the Planner/Writer/CitationAgent and a non-reasoning model for Workers.)
 

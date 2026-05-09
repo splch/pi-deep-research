@@ -170,6 +170,15 @@ assert.ok(regMerged.brief.source_prefer.some((s) => /NIST|ISO/i.test(s)));
 		/TAVILY_API_KEY/,
 		"registered web_search is the extension's Tavily-aware version, not the ollama builtin",
 	);
+	// web_fetch must advertise a fetch-bytes cap. Without one, a worker doing 3-4
+	// big fetches stacks past 1M tokens on the next turn and the model API rejects
+	// the prompt. Empirically observed at 2.9M tokens; do not regress.
+	const fetchDesc = registered.get("web_fetch").description;
+	assert.match(fetchDesc, /Truncated to \d+ bytes/, "web_fetch advertises a byte cap");
+	const capBytes = Number(fetchDesc.match(/Truncated to (\d+) bytes/)[1]);
+	assert.ok(capBytes >= 100_000, `fetch cap >= 100 KB (got ${capBytes})`);
+	assert.ok(capBytes <= 1_000_000, `fetch cap <= 1 MB to keep 6-fetch worker under 1M-token context (got ${capBytes})`);
+	assert.match(fetchDesc, /PI_DR_MAX_FETCH_BYTES/, "env-var override is documented");
 }
 
 // Stateful-regex guard for scripts/eval.mjs: g-flag regex with .test() in .filter() undercounts.

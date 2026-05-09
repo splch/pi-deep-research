@@ -24,10 +24,19 @@ const VERSION = (JSON.parse(readFileSync(new URL("./package.json", import.meta.u
 	.version;
 const SELF_SHA = createHash("sha256").update(readFileSync(SELF, "utf8")).digest("hex").slice(0, 12);
 const UA = `pi-deep-research/${VERSION}`;
-// Wall-clock backstops; all other "how big" knobs are user-controlled (max_total_usd is the cost ceiling).
-const MAX = { subagentMs: 600_000, urlMs: 8_000 };
+// Wall-clock backstops + a fetch-size cap. The fetch cap is essential because pi does
+// not truncate tool results: a worker doing 3-4 big fetches (long-form blog, PDF-extracted
+// paper, full Wikipedia article) easily stacks past 1M tokens on the next turn. 200 KB
+// (~50 K tokens) leaves room for a 6-fetch worker to stay under a 1M context window.
+// Override with PI_DR_MAX_FETCH_BYTES if you need bigger primary sources.
+const MAX = {
+	subagentMs: 600_000,
+	urlMs: 8_000,
+	fetchBytes: Number(process.env.PI_DR_MAX_FETCH_BYTES) || 200_000,
+};
 const ENV_ALLOW = "PI_DR_HOST_ALLOWLIST";
 const ENV_BLOCK = "PI_DR_HOST_BLOCKLIST";
+const ENV_FETCH_BYTES = "PI_DR_MAX_FETCH_BYTES";
 
 // Web search — provider dispatch (Tavily preferred for AI-tuned ranking).
 
@@ -840,14 +849,18 @@ export default function (pi: ExtensionAPI) {
 	const webFetchTool = {
 		name: "web_fetch",
 		label: "Web Fetch",
-		description: `Fetch a URL and return cleaned text. Uses Jina Reader if JINA_API_KEY is set; otherwise raw HTTP. Refuses URLs that look like exfiltration sinks. Honors ${ENV_ALLOW}/${ENV_BLOCK}.`,
+		description: `Fetch a URL and return cleaned text. Uses Jina Reader if JINA_API_KEY is set; otherwise raw HTTP. Refuses URLs that look like exfiltration sinks. Honors ${ENV_ALLOW}/${ENV_BLOCK}. Truncated to ${MAX.fetchBytes} bytes (override via ${ENV_FETCH_BYTES}).`,
 		promptSnippet: "Fetch a URL and extract readable text",
 		parameters: Type.Object({ url: Type.String({ description: "URL to fetch." }) }),
 		async execute(_id: string, params: { url: string }, signal?: AbortSignal | null) {
 			const r = await fetchUrl(params.url, signal ?? undefined);
+			const text =
+				r.text.length > MAX.fetchBytes
+					? `${r.text.slice(0, MAX.fetchBytes)}\n\n[truncated: ${MAX.fetchBytes}/${r.text.length} bytes — set ${ENV_FETCH_BYTES} to raise the cap]`
+					: r.text;
 			return {
-				content: [{ type: "text" as const, text: r.text }],
-				details: { url: params.url, bytes: r.bytes, content_sha256: r.content_sha256 },
+				content: [{ type: "text" as const, text }],
+				details: { url: params.url, bytes: r.bytes, truncated_at: r.text.length > MAX.fetchBytes ? MAX.fetchBytes : null, content_sha256: r.content_sha256 },
 			};
 		},
 		renderCall(args: any, theme: any) {
