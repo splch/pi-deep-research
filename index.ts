@@ -886,9 +886,15 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", () => {
-		const have = new Set(pi.getAllTools().map((t) => t.name));
-		if (!have.has("web_search")) pi.registerTool(webSearchTool);
-		if (!have.has("web_fetch")) pi.registerTool(webFetchTool);
+		// Always register — pi-coding-agent ships its own builtin web_search /
+		// web_fetch (Ollama-backed in many setups), and pi's tool registry resolves
+		// name collisions by letting custom tools (extensions) overwrite builtins.
+		// The earlier `if (!have.has(...))` guard skipped registration whenever any
+		// builtin or other extension already provided these names, which silently
+		// shadowed our Tavily/Brave/Exa/SerpAPI-aware versions even when the user
+		// had set the corresponding API key.
+		pi.registerTool(webSearchTool);
+		pi.registerTool(webFetchTool);
 	});
 
 	pi.registerTool({

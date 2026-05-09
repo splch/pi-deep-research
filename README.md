@@ -114,6 +114,8 @@ Provider-agnostic search. Picks whichever of `TAVILY_API_KEY` (preferred), `BRAV
 
 Fetches a URL and returns cleaned text. If `JINA_API_KEY` is set, prefers Jina Reader (handles JS, returns markdown). Direct HTTP otherwise; auto-escalates to Jina on sparse/empty pages when Jina is configured. Refuses URLs that look like exfiltration sinks. Output is not truncated by this tool — oversized pages are managed by pi's runtime context-window handling. Returns `content_sha256` in tool details for provenance.
 
+> **Tool ownership.** When this extension is loaded, it registers `web_search` and `web_fetch` on `session_start` and **takes ownership of those tool names**, overriding any builtin pi-coding-agent tools (e.g. the Ollama-backed search/fetch tools that ship with pi by default). Without this, a user who sets `TAVILY_API_KEY` would still silently hit pi's builtin search. If you want pi's builtins instead, do not load this extension.
+
 ### `/research <query>`
 
 Slash command: tells the LLM to state its scope interpretation, call `deep_research` with a structured `brief` (and matching `preset` if applicable), and finally flag 2–3 claims worth spot-checking — paying attention to any `[N]💀` dead-link markers, citation-audit section, and cost-cap warnings.

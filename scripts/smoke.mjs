@@ -146,6 +146,41 @@ const regMerged = m.mergePreset({ source_prefer: ["x"] }, "regulatory");
 assert.equal(regMerged.preset.name, "regulatory");
 assert.ok(regMerged.brief.source_prefer.some((s) => /NIST|ISO/i.test(s)));
 
+// --- Tool registration: ours must override pi's builtins -------------------
+// Regression for the bug where TAVILY_API_KEY was silently ignored because
+// pi-coding-agent ships its own builtin web_search / web_fetch (Ollama-backed)
+// and the extension's earlier `if (!have.has(name))` guard skipped registration
+// whenever those names were already present — which is always true with pi.
+{
+	const builtinTools = [
+		{ name: "web_search", description: "(builtin) ollama-backed search" },
+		{ name: "web_fetch", description: "(builtin) ollama-backed fetch" },
+	];
+	const registered = new Map();
+	const handlers = new Map();
+	const piMock = {
+		on(event, handler) { handlers.set(event, handler); },
+		registerTool(t) { registered.set(t.name, t); },
+		registerCommand() {},
+		getAllTools() {
+			return [...builtinTools, ...[...registered.values()].map((t) => ({ name: t.name }))];
+		},
+	};
+	assert.equal(typeof m.default, "function", "default export is the extension entry function");
+	m.default(piMock);
+	assert.ok(registered.has("deep_research"), "deep_research registered immediately");
+	assert.ok(!registered.has("web_search"), "web_search is deferred to session_start");
+	assert.equal(typeof handlers.get("session_start"), "function", "session_start handler installed");
+	handlers.get("session_start")();
+	assert.ok(registered.has("web_search"), "web_search registered on session_start (overrides pi builtin)");
+	assert.ok(registered.has("web_fetch"), "web_fetch registered on session_start (overrides pi builtin)");
+	assert.match(
+		registered.get("web_search").description,
+		/TAVILY_API_KEY/,
+		"registered web_search is the extension's Tavily-aware version, not the ollama builtin",
+	);
+}
+
 // --- Stateful-regex guard for scripts/eval.mjs ------------------------------
 // Regression test for a real bug we shipped: using a `g`-flag regex with .test()
 // in a .filter() callback advances lastIndex across calls and undercounts.
