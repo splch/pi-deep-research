@@ -81,6 +81,17 @@ const ds = m.dedupeSources([
 ]);
 assert.equal(ds.length, 2, "dedupe collapses query/trailing slash");
 
+const dsCap = m.dedupeSources(
+	[
+		{ url: "https://a.com/1", title: "T1" },
+		{ url: "https://a.com/2", title: "T2" },
+		{ url: "https://a.com/3", title: "T3" },
+		{ url: "https://b.com/y", title: "T4" },
+	],
+	2,
+);
+assert.equal(dsCap.length, 3, "max_per_host caps a.com to 2 + 1 from b.com");
+
 // --- mergePreset ------------------------------------------------------------
 const merged = m.mergePreset({ source_prefer: ["x"] }, "legal");
 assert.equal(merged.preset.name, "legal");
