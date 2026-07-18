@@ -9,6 +9,7 @@ import { generatePlan } from "./stages/clarify.js";
 import { confirmPlan, type GateDecision } from "./stages/gate.js";
 import { annotateReport, checkCitations } from "./stages/citations.js";
 import { runResearch, type AngleOutcome } from "./stages/research.js";
+import { recentConversationContext } from "./session-context.js";
 import { computeSurvivingFindingIds, runVerification } from "./stages/verify.js";
 import { runWriter } from "./stages/write.js";
 import { slugify } from "./ids.js";
@@ -206,6 +207,8 @@ export class Orchestrator {
 
   private async planAndConfirm(): Promise<ResearchPlan | undefined> {
     let question = this.deps.question;
+    // Ground the planner in the live conversation so the question can reference it.
+    const conversationContext = recentConversationContext(this.deps.ctx.sessionManager);
     for (let attempt = 0; attempt < 4; attempt++) {
       this.deps.ui.setStage("brief");
       const { plan, usage } = await generatePlan({
@@ -213,6 +216,7 @@ export class Orchestrator {
         config: this.deps.config,
         runId: this.deps.runId,
         question,
+        conversationContext,
         signal: this.signal,
       });
       this.budget.add(usage);

@@ -20,10 +20,22 @@ export function plannerSystemPrompt(): string {
   ].join("\n");
 }
 
-export function plannerTaskMessage(question: string, profile: DepthProfile, today = new Date().toISOString().slice(0, 10)): string {
+export function plannerTaskMessage(
+  question: string,
+  profile: DepthProfile,
+  today = new Date().toISOString().slice(0, 10),
+  conversationContext?: string,
+): string {
   return [
     `Research question: ${question}`,
     `Today's date: ${today} (frame angles and seed queries with current information in mind).`,
+    ...(conversationContext
+      ? [
+          "",
+          "Recent conversation in which the user asked this (use it to resolve references like \"that library\" and to scope angles; the question above stays the task - do not re-answer what the conversation already settled):",
+          conversationContext,
+        ]
+      : []),
     "",
     `Produce between ${profile.minAngles} and ${profile.maxAngles} angles (fewer if the question is narrow, more if broad).`,
     "Restate the question precisely as refinedQuestion, list concrete goals, and mark in-scope / out-of-scope.",

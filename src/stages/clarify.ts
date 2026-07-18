@@ -11,6 +11,8 @@ export interface ClarifyDeps {
   config: ResolvedConfig;
   runId: string;
   question: string;
+  /** Recent session conversation, so the planner can resolve references in the question. */
+  conversationContext?: string;
   signal?: AbortSignal;
 }
 
@@ -63,7 +65,7 @@ export async function generatePlan(deps: ClarifyDeps): Promise<PlanResult> {
   const spec: WorkerRunSpec<SubmitPlanPayload> = {
     label: "planner",
     systemPrompt: plannerSystemPrompt(),
-    task: plannerTaskMessage(question, profile),
+    task: plannerTaskMessage(question, profile, undefined, deps.conversationContext),
     customTools: [submit],
     toolNames: ["submit_plan"],
     model: config.models.planner,

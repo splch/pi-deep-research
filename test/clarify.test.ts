@@ -39,4 +39,18 @@ describe("generatePlan", () => {
     expect(captured.spec?.wallClockMs).toBe(600_000);
     expect(plan.angles.map((a) => a.title)).toEqual(["a1", "a2"]);
   });
+
+  it("weaves conversation context into the planner task", async () => {
+    const captured: { spec?: WorkerRunSpec<unknown> } = {};
+    const config = resolveConfig({ flags: {}, env: {}, defaultOutDir: "/tmp/research" });
+    await generatePlan({
+      backend: capturingBackend(captured),
+      config,
+      runId: "r",
+      question: "how does it handle left recursion",
+      conversationContext: "User: tell me about library X\n\nAssistant: library X is a parser toolkit",
+    });
+    expect(captured.spec?.task).toContain("how does it handle left recursion");
+    expect(captured.spec?.task).toContain("library X is a parser toolkit");
+  });
 });

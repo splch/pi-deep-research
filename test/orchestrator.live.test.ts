@@ -19,6 +19,7 @@ function stubCtx(cwd: string): ExtensionCommandContext {
     hasUI: false,
     cwd,
     ui: { notify() {}, setWidget() {}, setStatus() {} },
+    sessionManager: { getEntries: () => [] },
   } as unknown as ExtensionCommandContext;
 }
 

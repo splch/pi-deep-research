@@ -16,7 +16,12 @@ import type { ResearchBackend, WorkerResult, WorkerRunSpec } from "../src/worker
 const provider: SearchProvider = { name: "stub", async search() { return []; } };
 
 function stubCtx(cwd: string): ExtensionCommandContext {
-  return { hasUI: false, cwd, ui: { notify() {}, setWidget() {}, setStatus() {} } } as unknown as ExtensionCommandContext;
+  return {
+    hasUI: false,
+    cwd,
+    ui: { notify() {}, setWidget() {}, setStatus() {} },
+    sessionManager: { getEntries: () => [] },
+  } as unknown as ExtensionCommandContext;
 }
 
 const usage = () => ({ costUSD: 0.01, tokensIn: 10, tokensOut: 5, turns: 1 });
