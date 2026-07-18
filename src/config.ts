@@ -116,8 +116,9 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
     outDir: pickString(flags.out, env.PI_RESEARCH_OUT_DIR) ?? defaultOutDir,
     backend,
     yes: flags.yes === true,
-    perWorkerTurnCap: pickNumber(flags["turn-cap"], env.PI_RESEARCH_TURN_CAP, profile.perWorkerTurnCap),
-    perWorkerWallMs: pickNumber(flags["wall-secs"], env.PI_RESEARCH_WALL_SECS, 180) * 1000,
+    // Caps default to 0 = unlimited; set --turn-cap/--wall-secs (or env) to re-enable a limit.
+    perWorkerTurnCap: pickNumber(flags["turn-cap"], env.PI_RESEARCH_TURN_CAP, 0),
+    perWorkerWallMs: pickNumber(flags["wall-secs"], env.PI_RESEARCH_WALL_SECS, 0) * 1000,
     maxFetchChars: pickNumber(flags["max-fetch"], env.PI_RESEARCH_MAX_FETCH, 8000),
     models: {
       // Planner/writer default to the session model (undefined -> resolver picks default); worker/verifier too,

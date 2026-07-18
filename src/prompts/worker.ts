@@ -41,9 +41,13 @@ export function workerTaskMessage(
   if (angle.perspective) lines.push(`Adopt this perspective/lens: ${angle.perspective}`);
   if (angle.seedQueries.length > 0) lines.push(`Suggested starting searches: ${angle.seedQueries.join("; ")}`);
   if (brief.outOfScope.length > 0) lines.push(`Out of scope (do not chase): ${brief.outOfScope.join("; ")}`);
+  lines.push("");
+  if (perWorkerTurnCap > 0) {
+    lines.push(
+      `Budget guidance: aim to finish within about ${perWorkerTurnCap} tool-using turns. Be efficient; depth over breadth on this one angle.`,
+    );
+  }
   lines.push(
-    "",
-    `Budget guidance: aim to finish within about ${perWorkerTurnCap} tool-using turns. Be efficient; depth over breadth on this one angle.`,
     "IMPORTANT: do not narrate that you are about to submit - actually CALL submit_findings in the same turn you decide you are done. If you are running low on turns, submit immediately with what you have rather than fetching more.",
     "Begin researching now.",
   );

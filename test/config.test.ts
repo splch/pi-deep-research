@@ -8,7 +8,8 @@ describe("resolveConfig", () => {
     const c = resolveConfig(base);
     expect(c.depth).toBe("standard");
     expect(c.maxWorkers).toBe(4);
-    expect(c.perWorkerTurnCap).toBe(8);
+    expect(c.perWorkerTurnCap).toBe(0); // 0 = unlimited by default
+    expect(c.perWorkerWallMs).toBe(0); // 0 = unlimited by default
     expect(c.budgetUSD).toBe(2);
     expect(c.votes).toBe(2);
     expect(c.verify).toBe(true);

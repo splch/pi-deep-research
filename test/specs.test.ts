@@ -68,4 +68,19 @@ describe("research worker spec (isolation contract)", () => {
     const spec = specFixture();
     expect(spec.turnCap).toBe(6 + 3); // softTurnCap + HARD_TURN_BUFFER
   });
+
+  it("treats a zero soft budget as unlimited (no hard cap, no budget guidance in the task)", () => {
+    const { provider } = resolveSearchProvider(undefined, { TAVILY_API_KEY: "x" });
+    const spec = buildResearchWorkerSpec(brief, angle, {
+      store: new SourceStore(mkdtempSync(join(tmpdir(), "pi-dr-spec-"))),
+      limiter: new HostLimiter(),
+      provider,
+      model: {},
+      softTurnCap: 0,
+      wallClockMs: 0,
+      maxFetchChars: 8000,
+    });
+    expect(spec.turnCap).toBe(0);
+    expect(spec.task).not.toContain("Budget guidance");
+  });
 });

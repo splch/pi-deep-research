@@ -50,7 +50,8 @@ export function buildResearchWorkerSpec(
     customTools: [webSearch, fetchUrl, submit],
     toolNames: ["web_search", "fetch_url", "submit_findings"],
     model: deps.model,
-    turnCap: deps.softTurnCap + HARD_TURN_BUFFER,
+    // 0 = no hard cap; otherwise the soft budget plus a buffer for the submit turn.
+    turnCap: deps.softTurnCap > 0 ? deps.softTurnCap + HARD_TURN_BUFFER : 0,
     wallClockMs: deps.wallClockMs,
     result,
   };

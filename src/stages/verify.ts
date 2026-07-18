@@ -146,7 +146,7 @@ async function verifyOneClaim(
       customTools: [submit],
       toolNames: ["submit_verdict"],
       model: deps.config.models.verifier,
-      turnCap: 2,
+      turnCap: 0, // 0 = unlimited; single-shot verdict call
       wallClockMs: deps.config.perWorkerWallMs,
       result,
     };

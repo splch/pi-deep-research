@@ -55,8 +55,8 @@ Everything else has sane defaults and can be set per-run via flags or globally v
 | `--provider tavily\|exa\|brave` | `PI_RESEARCH_PROVIDER` | auto | Search provider |
 | `--no-verify` | - | off | Skip the verification stage |
 | `--backend sdk\|subprocess` | `PI_RESEARCH_BACKEND` | `sdk` | Research-worker isolation (see below) |
-| `--turn-cap N` | `PI_RESEARCH_TURN_CAP` | depth-based | Soft per-worker turn budget (hard cap adds a small buffer) |
-| `--wall-secs N` | `PI_RESEARCH_WALL_SECS` | `180` | Per-research-worker wall-clock limit in seconds |
+| `--turn-cap N` | `PI_RESEARCH_TURN_CAP` | unlimited | Soft per-worker turn budget (hard cap adds a small buffer) |
+| `--wall-secs N` | `PI_RESEARCH_WALL_SECS` | unlimited | Per-research-worker wall-clock limit in seconds |
 | `--max-fetch N` | `PI_RESEARCH_MAX_FETCH` | `8000` | Characters of extracted text returned per `fetch_url` |
 | `--out DIR` | `PI_RESEARCH_OUT_DIR` | `./research` | Where the report is written |
 | `--planner/--worker/--verifier/--writer <model>` | `PI_RESEARCH_{PLANNER,WORKER,VERIFIER,WRITER}_MODEL` | tiered | Per-stage model override |

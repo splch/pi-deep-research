@@ -109,7 +109,7 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
           usage.tokensOut += u.output;
           usage.costUSD += u.cost.total;
           onProgress?.({ label: spec.label, turns: usage.turns, costUSD: usage.costUSD });
-          if (usage.turns >= spec.turnCap && !sink.settled) {
+          if (spec.turnCap > 0 && usage.turns >= spec.turnCap && !sink.settled) {
             capReason = "turn-cap";
             void session.abort();
           }
@@ -118,10 +118,14 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
 
       const onOuterAbort = () => void session.abort();
       signal?.addEventListener("abort", onOuterAbort, { once: true });
-      const wallTimer = setTimeout(() => {
-        capReason = "wall-clock";
-        void session.abort();
-      }, spec.wallClockMs);
+      // wallClockMs 0 = unlimited: no timer at all.
+      const wallTimer =
+        spec.wallClockMs > 0
+          ? setTimeout(() => {
+              capReason = "wall-clock";
+              void session.abort();
+            }, spec.wallClockMs)
+          : undefined;
 
       try {
         if (signal?.aborted) {

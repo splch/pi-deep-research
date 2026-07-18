@@ -89,10 +89,14 @@ export function createSubprocessBackend(deps: SubprocessBackendDeps): ResearchBa
         },
       });
 
-      const wallTimer = setTimeout(() => {
-        capHit = true;
-        child.kill("SIGTERM");
-      }, spec.wallClockMs);
+      // wallClockMs 0 = unlimited: no timer at all.
+      const wallTimer =
+        spec.wallClockMs > 0
+          ? setTimeout(() => {
+              capHit = true;
+              child.kill("SIGTERM");
+            }, spec.wallClockMs)
+          : undefined;
       const onAbort = () => child.kill("SIGTERM");
       signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -112,7 +116,7 @@ export function createSubprocessBackend(deps: SubprocessBackendDeps): ResearchBa
           usage.tokensOut += u.output;
           usage.costUSD += u.cost?.total ?? 0;
           onProgress?.({ label: spec.label, turns: usage.turns, costUSD: usage.costUSD });
-          if (usage.turns >= spec.turnCap) {
+          if (spec.turnCap > 0 && usage.turns >= spec.turnCap) {
             capHit = true;
             child.kill("SIGTERM");
           }

@@ -67,9 +67,9 @@ export async function generatePlan(deps: ClarifyDeps): Promise<PlanResult> {
     customTools: [submit],
     toolNames: ["submit_plan"],
     model: config.models.planner,
-    turnCap: 3,
-    // Single-shot call, but slow reasoning models can think for minutes; reuse the
-    // user-tunable worker wall clock instead of a hardcoded budget.
+    // No hard caps by default (0 = unlimited): a single slow reasoning-model turn
+    // must be allowed to finish. --wall-secs/--turn-cap re-enable limits globally.
+    turnCap: 0,
     wallClockMs: config.perWorkerWallMs,
     result,
   };
@@ -79,7 +79,7 @@ export async function generatePlan(deps: ClarifyDeps): Promise<PlanResult> {
     throw new Error(`Planner did not produce a plan (status: ${run.status}${run.error ? `: ${run.error}` : ""}).`);
   }
   return {
-    plan: payloadToPlan(runId, question, config.depth, run.result, config.maxWorkers, profile.perWorkerTurnCap),
+    plan: payloadToPlan(runId, question, config.depth, run.result, config.maxWorkers, config.perWorkerTurnCap),
     usage: run.usage,
   };
 }
