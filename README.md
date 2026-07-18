@@ -24,7 +24,7 @@ Requires Pi and Node 20+. You need one search-provider API key (Tavily, Exa, or 
 pi install npm:pi-deep-research
 
 # From git
-pi install git:github.com/<you>/pi-deep-research
+pi install git:github.com/splch/pi-deep-research
 
 # From a local checkout
 pi install /path/to/pi-deep-research
