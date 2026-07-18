@@ -68,7 +68,9 @@ export async function generatePlan(deps: ClarifyDeps): Promise<PlanResult> {
     toolNames: ["submit_plan"],
     model: config.models.planner,
     turnCap: 3,
-    wallClockMs: 90_000,
+    // Single-shot call, but slow reasoning models can think for minutes; reuse the
+    // user-tunable worker wall clock instead of a hardcoded budget.
+    wallClockMs: config.perWorkerWallMs,
     result,
   };
 

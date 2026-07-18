@@ -84,7 +84,8 @@ export async function runWriter(deps: WriteStageDeps): Promise<WriteStageResult>
     toolNames: [],
     model: deps.config.models.writer,
     turnCap: 2,
-    wallClockMs: 180_000,
+    // Long single-shot generation; allow roughly two worker-length budgets.
+    wallClockMs: deps.config.perWorkerWallMs * 2,
     result,
   };
 

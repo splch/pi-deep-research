@@ -98,7 +98,7 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
       });
 
       const usage: WorkerUsage = { ...EMPTY_USAGE };
-      let capHit = false;
+      let capReason: "turn-cap" | "wall-clock" | undefined;
       let errorMessage: string | undefined;
 
       const unsubscribe = session.subscribe((event) => {
@@ -110,7 +110,7 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
           usage.costUSD += u.cost.total;
           onProgress?.({ label: spec.label, turns: usage.turns, costUSD: usage.costUSD });
           if (usage.turns >= spec.turnCap && !sink.settled) {
-            capHit = true;
+            capReason = "turn-cap";
             void session.abort();
           }
         }
@@ -119,7 +119,7 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
       const onOuterAbort = () => void session.abort();
       signal?.addEventListener("abort", onOuterAbort, { once: true });
       const wallTimer = setTimeout(() => {
-        capHit = true;
+        capReason = "wall-clock";
         void session.abort();
       }, spec.wallClockMs);
 
@@ -146,8 +146,13 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
       } else {
         salvagedText = lastAssistantText(session.state.messages);
         if (signal?.aborted) status = "aborted";
-        else if (capHit) status = "capped";
-        else if (errorMessage) status = "error";
+        else if (capReason) {
+          status = "capped";
+          errorMessage ??=
+            capReason === "turn-cap"
+              ? `turn cap (${spec.turnCap}) reached without a result`
+              : `wall clock (${Math.round(spec.wallClockMs / 1000)}s) exceeded without a result`;
+        } else if (errorMessage) status = "error";
         else status = salvagedText ? "salvaged" : "error";
       }
 

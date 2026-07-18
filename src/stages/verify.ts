@@ -147,7 +147,7 @@ async function verifyOneClaim(
       toolNames: ["submit_verdict"],
       model: deps.config.models.verifier,
       turnCap: 2,
-      wallClockMs: 60_000,
+      wallClockMs: deps.config.perWorkerWallMs,
       result,
     };
     const run = await deps.backend.runWorker(spec, deps.signal);
