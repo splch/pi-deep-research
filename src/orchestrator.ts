@@ -1,0 +1,343 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { BudgetTracker } from "./budget.js";
+import { Checkpointer } from "./checkpoint.js";
+import { STAGE_ORDER, stageReached } from "./types.js";
+import type { ResolvedConfig } from "./config.js";
+import { generatePlan } from "./stages/clarify.js";
+import { confirmPlan, type GateDecision } from "./stages/gate.js";
+import { annotateReport, checkCitations } from "./stages/citations.js";
+import { runResearch, type AngleOutcome } from "./stages/research.js";
+import { computeSurvivingFindingIds, runVerification } from "./stages/verify.js";
+import { runWriter } from "./stages/write.js";
+import { slugify } from "./ids.js";
+import type { ReportMeta } from "./types.js";
+import type { SearchProvider } from "./search/provider.js";
+import { SourceStore } from "./sources.js";
+import { HostLimiter } from "./tools/politeness.js";
+import type { ResearchUI } from "./ui.js";
+import type { Claim, Finding, ResearchPlan, RunState, Stage, Verdict } from "./types.js";
+import type { ResearchBackend } from "./worker/interface.js";
+
+export interface AppendEntryFn {
+  (customType: string, data: unknown): void;
+}
+export interface SendMessageFn {
+  (message: { customType: string; content: string; display: boolean }, options?: { triggerTurn?: boolean }): void;
+}
+
+export interface OrchestratorDeps {
+  ctx: ExtensionCommandContext;
+  appendEntry: AppendEntryFn;
+  sendMessage: SendMessageFn;
+  config: ResolvedConfig;
+  provider: SearchProvider;
+  /** In-process backend for planner/verify/write (their terminating tools need in-process capture). */
+  backend: ResearchBackend;
+  /**
+   * Optional backend for the research stage only (e.g. subprocess isolation). Built with the
+   * live SourceStore + artifact dir so it can merge fetched sources back. Falls back to `backend`.
+   */
+  makeResearchBackend?: (store: SourceStore, artifactDir: string) => ResearchBackend;
+  ui: ResearchUI;
+  runId: string;
+  question: string;
+}
+
+export interface RunOutcome {
+  stage: Stage;
+  reportPath?: string;
+  findings: number;
+  costUSD: number;
+  message: string;
+}
+
+/**
+ * Deterministic stage machine. Owns budget, checkpointing, and the abort signal;
+ * each stage is a plain method so a resumed run can jump to the stage after the
+ * furthest one already checkpointed.
+ */
+export class Orchestrator {
+  private readonly abortController = new AbortController();
+  private readonly store: SourceStore;
+  private readonly limiter: HostLimiter;
+  private readonly checkpointer: Checkpointer;
+  private readonly budget: BudgetTracker;
+  private plan?: ResearchPlan;
+  private findings: Finding[] = [];
+  private claims: Claim[] = [];
+  private verdicts: Verdict[] = [];
+  private findingsPath?: string;
+  private sourcesPath?: string;
+  private reportPath?: string;
+  private meta?: ReportMeta;
+  /** Furthest pipeline stage completed; survives terminal checkpoints so resume picks up in the right place. */
+  private reached: Stage = "created";
+
+  constructor(
+    private readonly deps: OrchestratorDeps,
+    resumeState?: RunState,
+  ) {
+    this.checkpointer = new Checkpointer(deps.appendEntry, deps.config.outDir, deps.runId);
+    this.limiter = new HostLimiter();
+    this.budget = new BudgetTracker(deps.config.budgetUSD, Date.now(), resumeState?.budget);
+    deps.ui.attachBudget(this.budget);
+
+    if (resumeState?.sourcesPath) {
+      try {
+        this.store = SourceStore.load(resumeState.sourcesPath, this.checkpointer.sourcesArtifactDir);
+      } catch {
+        this.store = new SourceStore(this.checkpointer.sourcesArtifactDir);
+      }
+    } else {
+      this.store = new SourceStore(this.checkpointer.sourcesArtifactDir);
+    }
+    if (resumeState?.plan) this.plan = resumeState.plan;
+    if (resumeState?.findingsPath) {
+      try {
+        this.findings = Checkpointer.readFindings(resumeState.findingsPath);
+      } catch {
+        this.findings = [];
+      }
+    }
+    if (resumeState?.claims) this.claims = resumeState.claims;
+    if (resumeState?.verdicts) this.verdicts = resumeState.verdicts;
+    if (resumeState) {
+      this.findingsPath = resumeState.findingsPath;
+      this.sourcesPath = resumeState.sourcesPath;
+      this.reportPath = resumeState.reportPath;
+      this.meta = resumeState.meta;
+      // Older checkpoints predate `reached`; fall back to `stage` when it names a pipeline stage.
+      this.reached = resumeState.reached ?? (STAGE_ORDER.includes(resumeState.stage) ? resumeState.stage : "created");
+    }
+  }
+
+  /** External cancel (bound to a shortcut / interrupt). */
+  abort(): void {
+    this.abortController.abort();
+  }
+
+  private get signal(): AbortSignal {
+    return this.abortController.signal;
+  }
+
+  /**
+   * Every checkpoint carries the full known progress (artifact pointers, claims,
+   * verdicts, `reached`), so a later terminal checkpoint (failed/aborted) cannot
+   * shadow an earlier stage's artifacts under the "latest wins" resume rule.
+   */
+  private checkpoint(stage: Stage): void {
+    if (STAGE_ORDER.includes(stage) && !stageReached(this.reached, stage)) this.reached = stage;
+    const state: RunState = {
+      version: 1,
+      runId: this.deps.runId,
+      question: this.deps.question,
+      stage,
+      reached: this.reached,
+      brief: this.plan?.brief,
+      plan: this.plan,
+      findingsPath: this.findingsPath,
+      sourcesPath: this.sourcesPath,
+      claims: this.claims.length > 0 ? this.claims : undefined,
+      verdicts: this.verdicts.length > 0 ? this.verdicts : undefined,
+      reportPath: this.reportPath,
+      meta: this.meta,
+      budget: this.budget.snapshot(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.checkpointer.writeState(state);
+    this.deps.ui.setStage(stage);
+  }
+
+  async run(): Promise<RunOutcome> {
+    try {
+      if (stageReached(this.reached, "complete")) {
+        this.deps.ui.notify("This run already completed.", "info");
+        return {
+          stage: "complete",
+          reportPath: this.reportPath,
+          findings: this.findings.length,
+          costUSD: this.budget.costUSD,
+          message: `Already complete: ${this.reportPath ?? "(no report path)"}`,
+        };
+      }
+
+      if (this.plan) this.deps.ui.setAngles(this.plan.angles);
+
+      // Stage 0: plan + confirm (skip if a confirmed plan was restored).
+      if (!(stageReached(this.reached, "plan_confirmed") && this.plan)) {
+        this.checkpoint("created");
+        const plan = await this.planAndConfirm();
+        if (!plan) return this.aborted("Cancelled at the plan gate.");
+        this.plan = plan;
+        this.deps.ui.setAngles(plan.angles);
+        this.checkpoint("plan_confirmed");
+      }
+
+      // Stage 1: research (skip if findings were restored).
+      if (!stageReached(this.reached, "research_done")) {
+        this.findings = await this.research();
+        if (this.signal.aborted) return this.aborted("Aborted during research.");
+      }
+
+      if (this.findings.length === 0) {
+        this.checkpoint("failed");
+        this.deps.ui.notify("No findings gathered - nothing to verify or report. Try adjusting the angles and --resume.", "warning");
+        return { stage: "failed", findings: 0, costUSD: this.budget.costUSD, message: "No findings gathered." };
+      }
+
+      // Stage 2: factored verification (skip if disabled or already done).
+      if (this.deps.config.verify && !stageReached(this.reached, "verify_done")) {
+        await this.verify();
+        if (this.signal.aborted) return this.aborted("Aborted during verification.");
+      }
+
+      return this.finalize();
+    } catch (error) {
+      // A cancel mid-stage surfaces as an error from the interrupted worker; report it as an abort, not a failure.
+      if (this.signal.aborted) return this.aborted("Aborted.");
+      const message = error instanceof Error ? error.message : String(error);
+      this.checkpoint("failed");
+      this.deps.ui.notify(`Research failed: ${message}`, "error");
+      return { stage: "failed", findings: this.findings.length, costUSD: this.budget.costUSD, message };
+    }
+  }
+
+  private async planAndConfirm(): Promise<ResearchPlan | undefined> {
+    let question = this.deps.question;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      this.deps.ui.setStage("brief");
+      const { plan, usage } = await generatePlan({
+        backend: this.deps.backend,
+        config: this.deps.config,
+        runId: this.deps.runId,
+        question,
+        signal: this.signal,
+      });
+      this.budget.add(usage);
+
+      if (this.deps.config.yes || !this.deps.ctx.hasUI) {
+        return { ...plan, confirmedByUser: true };
+      }
+      const decision: GateDecision = await confirmPlan(this.deps.ctx.ui, plan);
+      if (decision.action === "cancel") return undefined;
+      if (decision.action === "run") return decision.plan;
+      question = `${this.deps.question}\n\nAdditional guidance: ${decision.note}`;
+    }
+    return undefined;
+  }
+
+  private async research(): Promise<Finding[]> {
+    if (!this.plan) return [];
+    this.deps.ui.setStage("researching");
+    const researchBackend = this.deps.makeResearchBackend
+      ? this.deps.makeResearchBackend(this.store, this.checkpointer.runDir)
+      : this.deps.backend;
+    const { findings } = await runResearch({
+      plan: this.plan,
+      backend: researchBackend,
+      provider: this.deps.provider,
+      store: this.store,
+      limiter: this.limiter,
+      budget: this.budget,
+      config: this.deps.config,
+      signal: this.signal,
+      onProgress: (p) => this.deps.ui.workerProgress(p.label, p.turns, p.costUSD),
+      onOutcome: (o: AngleOutcome) => this.deps.ui.angleDone(o),
+    });
+
+    this.findingsPath = this.checkpointer.writeFindings(findings);
+    this.sourcesPath = join(this.checkpointer.runDir, "sources.json");
+    this.store.persist(this.sourcesPath);
+    // An aborted fan-out or an empty result is not "research done"; leave `reached`
+    // behind so --resume re-runs the stage instead of replaying the dead end.
+    if (!this.signal.aborted && findings.length > 0) this.checkpoint("research_done");
+    return findings;
+  }
+
+  private async verify(): Promise<void> {
+    this.deps.ui.setStage("verifying");
+    const result = await runVerification({
+      findings: this.findings,
+      store: this.store,
+      backend: this.deps.backend,
+      budget: this.budget,
+      config: this.deps.config,
+      signal: this.signal,
+      onProgress: (done, total) => this.deps.ui.setVerifyProgress(done, total),
+    });
+    this.claims = result.claims;
+    this.verdicts = result.verdicts;
+    // Verdicts from an aborted pass are partial (vote loops bail out); don't stamp the stage done.
+    if (!this.signal.aborted) this.checkpoint("verify_done");
+  }
+
+  /** Stages 3-4: single-writer report, citation-integrity check, and finalize. */
+  private async finalize(): Promise<RunOutcome> {
+    if (!this.plan) throw new Error("Cannot finalize without a plan.");
+    const survivingIds = computeSurvivingFindingIds(this.findings, this.claims, this.verdicts);
+    const surviving = this.findings.filter((f) => survivingIds.has(f.id));
+    const claimsToFindingIds = new Map(this.claims.map((c) => [c.id, c.findingIds]));
+
+    this.deps.ui.setStage("writing");
+    const { markdown, sources } = await runWriter({
+      brief: this.plan.brief,
+      findings: surviving,
+      verdicts: this.verdicts,
+      claimsToFindingIds,
+      store: this.store,
+      backend: this.deps.backend,
+      budget: this.budget,
+      config: this.deps.config,
+      signal: this.signal,
+    });
+
+    this.deps.ui.setStage("citation_check");
+    const citation = checkCitations(markdown, this.store);
+    const finalMarkdown = annotateReport(markdown, citation);
+
+    const reportPath = join(this.deps.config.outDir, `${this.deps.runId}-${slugify(this.deps.question)}.md`);
+    writeFileSync(reportPath, finalMarkdown, "utf8");
+
+    const refuted = this.verdicts.filter((v) => v.verdict === "refuted" || v.verdict === "unsupported").length;
+    const verified = this.verdicts.filter((v) => v.verdict === "supported" || v.verdict === "partially_supported").length;
+    const meta: ReportMeta = {
+      runId: this.deps.runId,
+      title: this.plan.brief.refinedQuestion,
+      question: this.deps.question,
+      generatedAt: new Date().toISOString(),
+      model: this.deps.config.models.writer.model ?? "session-default",
+      wordCount: finalMarkdown.split(/\s+/).filter(Boolean).length,
+      sourceCount: sources.length,
+      claimCount: this.claims.length,
+      verifiedCount: verified,
+      refutedCount: refuted,
+      citationsChecked: citation.checked,
+      citationsFailed: citation.failed,
+      costUSD: Number(this.budget.costUSD.toFixed(4)),
+      elapsedMs: this.budget.snapshot().wallMs,
+      outputPath: reportPath,
+    };
+    writeFileSync(join(this.checkpointer.runDir, "report-meta.json"), JSON.stringify(meta, null, 2), "utf8");
+    this.reportPath = reportPath;
+    this.meta = meta;
+    this.checkpoint("complete");
+
+    const flagNote = citation.failed > 0 ? ` ⚠ ${citation.failed} unverifiable citation(s) flagged.` : "";
+    const message =
+      `Deep research complete: "${this.plan.brief.refinedQuestion}"\n` +
+      `${sources.length} sources, ${verified} verified / ${refuted} dropped claims, ` +
+      `$${this.budget.costUSD.toFixed(2)}, ${Math.round(meta.elapsedMs / 1000)}s.${flagNote}\n` +
+      `Report: ${reportPath}`;
+    this.deps.sendMessage({ customType: "research-report", content: message, display: true }, { triggerTurn: false });
+    this.deps.ui.notify("Research complete.", "info");
+    return { stage: "complete", reportPath, findings: surviving.length, costUSD: this.budget.costUSD, message };
+  }
+
+  private aborted(message: string): RunOutcome {
+    this.checkpoint("aborted");
+    this.deps.ui.notify(message, "warning");
+    return { stage: "aborted", findings: this.findings.length, costUSD: this.budget.costUSD, message };
+  }
+}
