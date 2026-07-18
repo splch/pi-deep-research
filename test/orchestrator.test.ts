@@ -63,7 +63,12 @@ function scriptedBackend(script: StageScript = {}): ResearchBackend {
   };
 }
 
-function makeOrchestrator(cwd: string, backend: ResearchBackend, states: RunState[], runId: string, resume?: RunState) {
+interface SentMessage {
+  message: { customType: string; content: string; display: boolean };
+  options?: { triggerTurn?: boolean };
+}
+
+function makeOrchestrator(cwd: string, backend: ResearchBackend, states: RunState[], runId: string, resume?: RunState, sent: SentMessage[] = []) {
   const config = resolveConfig({ flags: { depth: "quick", votes: "1", yes: true }, env: {}, defaultOutDir: join(cwd, "research") });
   const ctx = stubCtx(cwd);
   return new Orchestrator(
@@ -72,7 +77,9 @@ function makeOrchestrator(cwd: string, backend: ResearchBackend, states: RunStat
       appendEntry: (customType, data) => {
         if (customType === "research:state") states.push(data as RunState);
       },
-      sendMessage: () => {},
+      sendMessage: (message, options) => {
+        sent.push({ message, options });
+      },
       config,
       provider,
       backend,
@@ -88,9 +95,15 @@ describe("orchestrator (offline, scripted backend)", () => {
   it("runs the full pipeline and flags unverifiable citations", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-dr-orch-unit-"));
     const states: RunState[] = [];
-    const outcome = await makeOrchestrator(cwd, scriptedBackend(), states, "t1").run();
+    const sent: SentMessage[] = [];
+    const outcome = await makeOrchestrator(cwd, scriptedBackend(), states, "t1", undefined, sent).run();
 
     expect(outcome.stage).toBe("complete");
+    // The finished report's summary is handed to the session agent with a follow-up turn.
+    const handoff = sent.find((s) => s.message.customType === "research-report");
+    expect(handoff?.options?.triggerTurn).toBe(true);
+    expect(handoff?.message.content).toContain("A cited claim [1].");
+    expect(handoff?.message.content).toContain("Continue from these findings");
     expect(outcome.findings).toBe(2); // one finding per angle survived
     expect(states.map((s) => s.stage)).toEqual(["created", "plan_confirmed", "research_done", "verify_done", "complete"]);
     expect(states.at(-1)?.reached).toBe("complete");

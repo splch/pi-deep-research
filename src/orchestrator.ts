@@ -10,6 +10,7 @@ import { confirmPlan, type GateDecision } from "./stages/gate.js";
 import { annotateReport, checkCitations } from "./stages/citations.js";
 import { runResearch, type AngleOutcome } from "./stages/research.js";
 import { recentConversationContext } from "./session-context.js";
+import { extractExecutiveSummary } from "./report-summary.js";
 import { computeSurvivingFindingIds, runVerification } from "./stages/verify.js";
 import { runWriter } from "./stages/write.js";
 import { slugify } from "./ids.js";
@@ -329,12 +330,17 @@ export class Orchestrator {
     this.checkpoint("complete");
 
     const flagNote = citation.failed > 0 ? ` ⚠ ${citation.failed} unverifiable citation(s) flagged.` : "";
-    const message =
-      `Deep research complete: "${this.plan.brief.refinedQuestion}"\n` +
+    const stats =
       `${sources.length} sources, ${verified} verified / ${refuted} dropped claims, ` +
-      `$${this.budget.costUSD.toFixed(2)}, ${Math.round(meta.elapsedMs / 1000)}s.${flagNote}\n` +
-      `Report: ${reportPath}`;
-    this.deps.sendMessage({ customType: "research-report", content: message, display: true }, { triggerTurn: false });
+      `$${this.budget.costUSD.toFixed(2)}, ${Math.round(meta.elapsedMs / 1000)}s.${flagNote}`;
+    // Hand the executive summary back to the session agent and trigger a turn, so the
+    // conversation continues from the findings without the user having to prompt it.
+    const message =
+      `Deep research complete: "${this.plan.brief.refinedQuestion}"\n\n` +
+      `Executive summary:\n${extractExecutiveSummary(finalMarkdown)}\n\n` +
+      `${stats}\nFull report: ${reportPath}\n\n` +
+      `Continue from these findings: relate them to the user's question and the conversation so far, and flag any evidence gaps.`;
+    this.deps.sendMessage({ customType: "research-report", content: message, display: true }, { triggerTurn: true });
     this.deps.ui.notify("Research complete.", "info");
     return { stage: "complete", reportPath, findings: surviving.length, costUSD: this.budget.costUSD, message };
   }
