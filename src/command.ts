@@ -1,4 +1,4 @@
-import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ModelRuntime, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { BOOLEAN_FLAGS, ENUM_FLAG_VALUES, parseCommandArgs, VALUE_FLAGS } from "./args.js";
 import { latestRunState } from "./checkpoint.js";
@@ -44,8 +44,10 @@ export async function handleResearchCommand(pi: ExtensionAPI, args: string, ctx:
 
   // Model tiering: keep planner/writer on the session model, drop worker/verifier to the
   // cheapest same-provider model, unless the user set a stage model explicitly.
+  const agentDir = getAgentDir();
+  const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json") });
   const sessionModel = { provider: ctx.model?.provider, model: ctx.model?.id };
-  config.models = resolveStageModels(config.models, ctx.modelRegistry, sessionModel);
+  config.models = resolveStageModels(config.models, modelRuntime, sessionModel);
 
   // Resume: find the latest checkpoint in this session's branch.
   let resumeState: RunState | undefined;
@@ -72,7 +74,7 @@ export async function handleResearchCommand(pi: ExtensionAPI, args: string, ctx:
   }
 
   const runId = resumeState?.runId ?? newRunId();
-  const backend = createSdkBackend({ agentDir: getAgentDir(), cwd: ctx.cwd, modelRegistry: ctx.modelRegistry });
+  const backend = createSdkBackend({ agentDir, cwd: ctx.cwd, modelRuntime });
   const ui = new ResearchUI(ctx.ui, ctx.hasUI, question);
 
   const makeResearchBackend =

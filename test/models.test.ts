@@ -1,20 +1,20 @@
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { StageModels } from "../src/config.js";
 import { resolveStageModels } from "../src/models.js";
 
-// Minimal registry stub: only getAvailable() is used when the provider is known up front.
-function stubRegistry(models: Array<{ id: string; provider: string; outputCost: number }>): ModelRegistry {
+// Minimal runtime stub: only getAvailableSnapshot() is used when the provider is known up front.
+function stubRuntime(models: Array<{ id: string; provider: string; outputCost: number }>): ModelRuntime {
   return {
-    getAvailable: () => models.map((m) => ({ id: m.id, provider: m.provider, cost: { output: m.outputCost } })),
-  } as unknown as ModelRegistry;
+    getAvailableSnapshot: () => models.map((m) => ({ id: m.id, provider: m.provider, cost: { output: m.outputCost } })),
+  } as unknown as ModelRuntime;
 }
 
 const emptyStages: StageModels = { planner: {}, worker: {}, verifier: {}, writer: {} };
 
 describe("resolveStageModels", () => {
   it("keeps planner/writer on the session model and drops worker/verifier to the cheapest same-provider model", () => {
-    const registry = stubRegistry([
+    const registry = stubRuntime([
       { id: "big", provider: "anthropic", outputCost: 15 },
       { id: "small", provider: "anthropic", outputCost: 1 },
       { id: "other", provider: "openai", outputCost: 0.1 },
@@ -27,7 +27,7 @@ describe("resolveStageModels", () => {
   });
 
   it("does not override explicitly-set stage models", () => {
-    const registry = stubRegistry([
+    const registry = stubRuntime([
       { id: "big", provider: "anthropic", outputCost: 15 },
       { id: "small", provider: "anthropic", outputCost: 1 },
     ]);
@@ -43,7 +43,7 @@ describe("resolveStageModels", () => {
   });
 
   it("falls back to session model when no same-provider sibling is available", () => {
-    const registry = stubRegistry([{ id: "only", provider: "openai", outputCost: 2 }]);
+    const registry = stubRuntime([{ id: "only", provider: "openai", outputCost: 2 }]);
     const resolved = resolveStageModels(emptyStages, registry, { provider: "anthropic", model: "solo" });
     expect(resolved.worker).toEqual({}); // no cheap sibling -> empty spec -> registry default at run time
   });

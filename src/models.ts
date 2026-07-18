@@ -1,4 +1,4 @@
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { resolveCliModel } from "@earendil-works/pi-coding-agent";
 import type { StageModels } from "./config.js";
 import type { WorkerModelSpec } from "./worker/interface.js";
@@ -24,11 +24,11 @@ function hasExplicit(spec: WorkerModelSpec): boolean {
  */
 export function resolveStageModels(
   configured: StageModels,
-  modelRegistry: ModelRegistry,
+  modelRuntime: ModelRuntime,
   sessionModel: WorkerModelSpec,
 ): ResolvedStageModels {
-  const sessionProvider = resolveSessionProvider(configured, modelRegistry, sessionModel);
-  const cheap = sessionProvider ? cheapestModel(modelRegistry, sessionProvider) : undefined;
+  const sessionProvider = resolveSessionProvider(configured, modelRuntime, sessionModel);
+  const cheap = sessionProvider ? cheapestModel(modelRuntime, sessionProvider) : undefined;
 
   const cheapSpec: WorkerModelSpec = cheap ? { provider: cheap.provider, model: cheap.id } : {};
 
@@ -42,7 +42,7 @@ export function resolveStageModels(
 
 function resolveSessionProvider(
   configured: StageModels,
-  modelRegistry: ModelRegistry,
+  modelRuntime: ModelRuntime,
   sessionModel: WorkerModelSpec,
 ): string | undefined {
   const hint = hasExplicit(configured.planner) ? configured.planner : sessionModel;
@@ -50,13 +50,13 @@ function resolveSessionProvider(
   const resolved = resolveCliModel({
     cliProvider: hint.provider,
     cliModel: hint.model,
-    modelRegistry,
+    modelRuntime,
   });
   return resolved.model?.provider;
 }
 
-function cheapestModel(modelRegistry: ModelRegistry, provider: string) {
-  const available = modelRegistry.getAvailable().filter((m) => m.provider === provider);
+function cheapestModel(modelRuntime: ModelRuntime, provider: string) {
+  const available = modelRuntime.getAvailableSnapshot().filter((m) => m.provider === provider);
   if (available.length === 0) return undefined;
   return available.reduce((cheapest, m) => (m.cost.output < cheapest.cost.output ? m : cheapest));
 }

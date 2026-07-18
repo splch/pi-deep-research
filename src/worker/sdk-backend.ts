@@ -1,8 +1,7 @@
 import {
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   resolveCliModel,
   SessionManager,
   SettingsManager,
@@ -20,7 +19,7 @@ import type {
 export interface SdkBackendDeps {
   agentDir: string;
   cwd: string;
-  modelRegistry?: ModelRegistry;
+  modelRuntime?: ModelRuntime;
 }
 
 const EMPTY_USAGE: WorkerUsage = { costUSD: 0, tokensIn: 0, tokensOut: 0, turns: 0 };
@@ -47,7 +46,7 @@ function lastAssistantText(messages: AgentMessage[]): string | undefined {
  * and cannot load another extension that might grant those.
  */
 export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
-  let sharedRegistry = deps.modelRegistry;
+  let sharedRuntime = deps.modelRuntime;
 
   return {
     name: "sdk",
@@ -71,15 +70,15 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
       });
       await loader.reload();
 
-      if (!sharedRegistry) {
-        sharedRegistry = ModelRegistry.create(AuthStorage.create(`${deps.agentDir}/auth.json`));
+      if (!sharedRuntime) {
+        sharedRuntime = await ModelRuntime.create({ authPath: `${deps.agentDir}/auth.json` });
       }
-      const modelRegistry = sharedRegistry;
+      const modelRuntime = sharedRuntime;
       const resolved = resolveCliModel({
         cliProvider: spec.model.provider,
         cliModel: spec.model.model,
         cliThinking: spec.model.thinkingLevel,
-        modelRegistry,
+        modelRuntime,
       });
       if (resolved.error) {
         return { label: spec.label, status: "error", usage: { ...EMPTY_USAGE }, error: resolved.error };
@@ -88,7 +87,7 @@ export function createSdkBackend(deps: SdkBackendDeps): ResearchBackend {
       const { session } = await createAgentSession({
         cwd: deps.cwd,
         agentDir: deps.agentDir,
-        modelRegistry,
+        modelRuntime,
         model: resolved.model,
         thinkingLevel: resolved.thinkingLevel ?? spec.model.thinkingLevel,
         tools: spec.toolNames,
