@@ -107,7 +107,12 @@ export async function handleResearchCommand(pi: ExtensionAPI, args: string, ctx:
   activeRun = { abort: () => orchestrator.abort(), runId };
   try {
     const outcome = await orchestrator.run();
-    if (outcome.stage === "complete") ui.notify(outcome.message, "info");
+    if (outcome.stage === "complete") {
+      ui.notify(outcome.message, "info");
+      // The completion handoff triggers a follow-up turn via fire-and-forget pi.sendMessage;
+      // wait for it so single-shot hosts (print mode) don't exit before it finishes.
+      await ctx.waitForIdle();
+    }
   } catch (error) {
     ctx.ui.notify(`Research error: ${error instanceof Error ? error.message : String(error)}`, "error");
   } finally {
