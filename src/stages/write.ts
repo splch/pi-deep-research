@@ -51,6 +51,8 @@ export interface WriteStageDeps {
   brief: ResearchBrief;
   findings: Finding[];
   verdicts: Verdict[];
+  /** Unresolved contradictions from the reflection pass(es), surfaced as an explicit writer input. */
+  openConflicts?: string[];
   claimsToFindingIds: Map<string, string[]>;
   store: SourceStore;
   backend: ResearchBackend;
@@ -79,7 +81,14 @@ export async function runWriter(deps: WriteStageDeps): Promise<WriteStageResult>
   const spec: WorkerRunSpec<never> = {
     label: "writer",
     systemPrompt: writerSystemPrompt(),
-    task: writerTaskMessage({ brief: deps.brief, findings: deps.findings, verdictByFinding, sources, refsByFinding }),
+    task: writerTaskMessage({
+      brief: deps.brief,
+      findings: deps.findings,
+      verdictByFinding,
+      sources,
+      refsByFinding,
+      openConflicts: deps.openConflicts,
+    }),
     customTools: [],
     toolNames: [],
     model: deps.config.models.writer,

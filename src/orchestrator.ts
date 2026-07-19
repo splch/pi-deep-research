@@ -8,6 +8,7 @@ import type { ResolvedConfig } from "./config.js";
 import { generatePlan } from "./stages/clarify.js";
 import { confirmPlan, type GateDecision } from "./stages/gate.js";
 import { annotateReport, checkCitations } from "./stages/citations.js";
+import { followUpsToAngles, runFollowUpResearch, runReflector } from "./stages/reflect.js";
 import { runResearch, type AngleOutcome } from "./stages/research.js";
 import { recentConversationContext } from "./session-context.js";
 import { extractExecutiveSummary } from "./report-summary.js";
@@ -19,7 +20,7 @@ import type { SearchProvider } from "./search/provider.js";
 import { SourceStore } from "./sources.js";
 import { HostLimiter } from "./tools/politeness.js";
 import type { ResearchUI } from "./ui.js";
-import type { Claim, Finding, ResearchPlan, RunState, Stage, Verdict } from "./types.js";
+import type { Claim, Finding, ReflectionState, ResearchPlan, RunState, Stage, Verdict } from "./types.js";
 import type { ResearchBackend } from "./worker/interface.js";
 
 export interface AppendEntryFn {
@@ -68,6 +69,8 @@ export class Orchestrator {
   private readonly budget: BudgetTracker;
   private plan?: ResearchPlan;
   private findings: Finding[] = [];
+  private outcomes: AngleOutcome[] = [];
+  private reflection?: ReflectionState;
   private claims: Claim[] = [];
   private verdicts: Verdict[] = [];
   private findingsPath?: string;
@@ -105,6 +108,8 @@ export class Orchestrator {
     }
     if (resumeState?.claims) this.claims = resumeState.claims;
     if (resumeState?.verdicts) this.verdicts = resumeState.verdicts;
+    if (resumeState?.outcomes) this.outcomes = resumeState.outcomes;
+    if (resumeState?.reflection) this.reflection = resumeState.reflection;
     if (resumeState) {
       this.findingsPath = resumeState.findingsPath;
       this.sourcesPath = resumeState.sourcesPath;
@@ -143,6 +148,8 @@ export class Orchestrator {
       sourcesPath: this.sourcesPath,
       claims: this.claims.length > 0 ? this.claims : undefined,
       verdicts: this.verdicts.length > 0 ? this.verdicts : undefined,
+      outcomes: this.outcomes.length > 0 ? this.outcomes : undefined,
+      reflection: this.reflection,
       reportPath: this.reportPath,
       meta: this.meta,
       budget: this.budget.snapshot(),
@@ -187,6 +194,12 @@ export class Orchestrator {
         this.checkpoint("failed");
         this.deps.ui.notify("No findings gathered - nothing to verify or report. Try adjusting the angles and --resume.", "warning");
         return { stage: "failed", findings: 0, costUSD: this.budget.costUSD, message: "No findings gathered." };
+      }
+
+      // Stage 1.5: reflection (skip if disabled via --max-iters 0 or already done).
+      if (this.deps.config.maxIters > 0 && !stageReached(this.reached, "reflect_done")) {
+        await this.reflect();
+        if (this.signal.aborted) return this.aborted("Aborted during reflection.");
       }
 
       // Stage 2: factored verification (skip if disabled or already done).
@@ -239,7 +252,7 @@ export class Orchestrator {
     const researchBackend = this.deps.makeResearchBackend
       ? this.deps.makeResearchBackend(this.store, this.checkpointer.runDir)
       : this.deps.backend;
-    const { findings } = await runResearch({
+    const { findings, outcomes } = await runResearch({
       plan: this.plan,
       backend: researchBackend,
       provider: this.deps.provider,
@@ -252,6 +265,7 @@ export class Orchestrator {
       onOutcome: (o: AngleOutcome) => this.deps.ui.angleDone(o),
     });
 
+    this.outcomes = outcomes;
     this.findingsPath = this.checkpointer.writeFindings(findings);
     this.sourcesPath = join(this.checkpointer.runDir, "sources.json");
     this.store.persist(this.sourcesPath);
@@ -259,6 +273,76 @@ export class Orchestrator {
     // behind so --resume re-runs the stage instead of replaying the dead end.
     if (!this.signal.aborted && findings.length > 0) this.checkpoint("research_done");
     return findings;
+  }
+
+  /**
+   * Reflection loop: a cheap web-less reflector judges coverage against the plan goals;
+   * gaps become one bounded follow-up fan-out per iteration (hard-capped by --max-iters,
+   * budget-gated), and unresolved conflicts accumulate for the writer. Each iteration
+   * checkpoints so --resume continues the loop instead of restarting it.
+   */
+  private async reflect(): Promise<void> {
+    if (!this.plan) return;
+    const maxIters = this.deps.config.maxIters;
+    while ((this.reflection?.iterations ?? 0) < maxIters) {
+      if (this.signal.aborted || this.budget.overBudget()) break;
+      this.deps.ui.setStage("reflecting");
+      const iteration = (this.reflection?.iterations ?? 0) + 1;
+      const { reflection, error } = await runReflector({
+        plan: this.plan,
+        outcomes: this.outcomes,
+        findings: this.findings,
+        backend: this.deps.backend,
+        budget: this.budget,
+        config: this.deps.config,
+        iteration,
+        signal: this.signal,
+      });
+      if (error) {
+        // A failed reflector must not sink an otherwise good run; continue without it.
+        this.deps.ui.notify(`Reflection pass ${iteration} failed (${error}); continuing without it.`, "warning");
+        break;
+      }
+      if (!reflection) break; // aborted mid-pass
+      this.reflection = {
+        iterations: iteration,
+        gaps: reflection.gaps,
+        conflicts: [...(this.reflection?.conflicts ?? []), ...reflection.conflicts],
+      };
+
+      const followUps = followUpsToAngles(reflection.followUpAngles, iteration);
+      if (followUps.length === 0) break; // coverage complete: no more iterations needed
+      if (this.signal.aborted || this.budget.overBudget()) break;
+
+      this.deps.ui.setAngles(followUps);
+      const researchBackend = this.deps.makeResearchBackend
+        ? this.deps.makeResearchBackend(this.store, this.checkpointer.runDir)
+        : this.deps.backend;
+      const extra = await runFollowUpResearch(
+        {
+          plan: this.plan,
+          backend: researchBackend,
+          provider: this.deps.provider,
+          store: this.store,
+          limiter: this.limiter,
+          budget: this.budget,
+          config: this.deps.config,
+          signal: this.signal,
+          onProgress: (p) => this.deps.ui.workerProgress(p.label, p.turns, p.costUSD),
+          onOutcome: (o) => this.deps.ui.angleDone(o),
+        },
+        followUps,
+      );
+      this.findings = [...this.findings, ...extra.findings];
+      this.outcomes = [...this.outcomes, ...extra.outcomes];
+      this.findingsPath = this.checkpointer.writeFindings(this.findings);
+      this.sourcesPath = this.sourcesPath ?? join(this.checkpointer.runDir, "sources.json");
+      this.store.persist(this.sourcesPath);
+      this.checkpoint("reflecting");
+    }
+    // Stamp reflect_done only when at least one pass actually ran: a fully budget-skipped
+    // or failed reflection is not progress, so --resume may retry it (e.g. with --budget raised).
+    if (!this.signal.aborted && (this.reflection?.iterations ?? 0) > 0) this.checkpoint("reflect_done");
   }
 
   private async verify(): Promise<void> {
@@ -290,6 +374,7 @@ export class Orchestrator {
       brief: this.plan.brief,
       findings: surviving,
       verdicts: this.verdicts,
+      openConflicts: this.reflection?.conflicts,
       claimsToFindingIds,
       store: this.store,
       backend: this.deps.backend,

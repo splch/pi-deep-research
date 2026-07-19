@@ -21,6 +21,7 @@ export const VALUE_FLAGS = new Set([
   "turn-cap",
   "wall-secs",
   "max-fetch",
+  "max-iters",
 ]);
 
 export const BOOLEAN_FLAGS = new Set(["no-verify", "yes", "resume"]);

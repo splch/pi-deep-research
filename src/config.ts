@@ -20,6 +20,8 @@ export interface ResolvedConfig {
   outDir: string;
   backend: BackendKind;
   yes: boolean;
+  /** Reflection passes after research (coverage check -> targeted re-research); 0 disables. */
+  maxIters: number;
   perWorkerTurnCap: number;
   perWorkerWallMs: number;
   maxFetchChars: number;
@@ -32,12 +34,13 @@ export interface DepthProfile {
   maxWorkers: number;
   perWorkerTurnCap: number;
   maxClaims: number;
+  maxIters: number;
 }
 
 export const DEPTH_PROFILES: Record<Depth, DepthProfile> = {
-  quick: { minAngles: 2, maxAngles: 3, maxWorkers: 3, perWorkerTurnCap: 6, maxClaims: 6 },
-  standard: { minAngles: 4, maxAngles: 6, maxWorkers: 4, perWorkerTurnCap: 8, maxClaims: 12 },
-  deep: { minAngles: 6, maxAngles: 8, maxWorkers: 4, perWorkerTurnCap: 12, maxClaims: 24 },
+  quick: { minAngles: 2, maxAngles: 3, maxWorkers: 3, perWorkerTurnCap: 6, maxClaims: 6, maxIters: 0 },
+  standard: { minAngles: 4, maxAngles: 6, maxWorkers: 4, perWorkerTurnCap: 8, maxClaims: 12, maxIters: 1 },
+  deep: { minAngles: 6, maxAngles: 8, maxWorkers: 4, perWorkerTurnCap: 12, maxClaims: 24, maxIters: 2 },
 };
 
 /** Reads a value with precedence: explicit flag > env > default. */
@@ -55,6 +58,14 @@ function pickNumber(flag: string | boolean | undefined, env: string | undefined,
   if (raw === undefined) return fallback;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Like pickNumber but accepts 0 (e.g. --max-iters 0 disables reflection). */
+function pickNonNegative(flag: string | boolean | undefined, env: string | undefined, fallback: number): number {
+  const raw = pickString(flag, env);
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
 function modelSpec(raw: string | undefined): WorkerModelSpec {
@@ -113,6 +124,7 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
     votes: Math.min(pickNumber(flags.votes, env.PI_RESEARCH_VOTES, 2), 5),
     budgetUSD: pickNumber(flags.budget, env.PI_RESEARCH_BUDGET_USD, 2.0),
     verify: flags["no-verify"] !== true,
+    maxIters: Math.min(pickNonNegative(flags["max-iters"], env.PI_RESEARCH_MAX_ITERS, profile.maxIters), 5),
     outDir: pickString(flags.out, env.PI_RESEARCH_OUT_DIR) ?? defaultOutDir,
     backend,
     yes: flags.yes === true,

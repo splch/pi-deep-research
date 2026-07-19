@@ -40,6 +40,15 @@ describe("resolveConfig", () => {
     expect(c.budgetUSD).toBe(2);
   });
 
+  it("scales max-iters by depth profile, honoring an explicit flag (0 disables)", () => {
+    expect(resolveConfig(base).maxIters).toBe(1); // standard default
+    expect(resolveConfig({ ...base, flags: { depth: "quick" } }).maxIters).toBe(0);
+    expect(resolveConfig({ ...base, flags: { depth: "deep" } }).maxIters).toBe(2);
+    expect(resolveConfig({ ...base, flags: { "max-iters": "0" } }).maxIters).toBe(0); // explicit disable
+    expect(resolveConfig({ ...base, flags: { "max-iters": "99" } }).maxIters).toBe(5); // capped
+    expect(resolveConfig({ ...base, flags: {}, env: { PI_RESEARCH_MAX_ITERS: "3" } }).maxIters).toBe(3);
+  });
+
   it("parses stage model specs (provider/model:thinking) with verifier/writer inheritance", () => {
     const c = resolveConfig({ ...base, flags: { planner: "anthropic/claude-opus:high", worker: "haiku" } });
     expect(c.models.planner).toEqual({ provider: "anthropic", model: "claude-opus", thinkingLevel: "high" });
