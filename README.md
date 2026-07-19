@@ -2,7 +2,7 @@
 
 A deep-research extension for [Pi](https://pi.dev), the coding agent by Earendil. It runs a multi-agent research pipeline behind a single `/research` command:
 
-**clarify → plan (you confirm) → parallel web research → factored verification → single-writer cited report → citation-integrity check.**
+**clarify → plan (you confirm) → parallel web research → reflection (coverage check → targeted re-research) → factored verification → single-writer cited report → citation-integrity check.**
 
 The design follows current deep-research practice (Anthropic's orchestrator-worker system, LangChain Open Deep Research, GPT Researcher, Stanford STORM, and Chain-of-Verification). The two research briefs it is based on are in [`research/`](./research).
 
@@ -10,6 +10,7 @@ The design follows current deep-research practice (Anthropic's orchestrator-work
 
 - **Plan-confirm gate.** A planner LLM decomposes your question into complementary, perspective-diverse angles and proposes a research brief. You run, edit, regenerate-with-guidance, or cancel before any expensive work starts.
 - **Parallel isolated workers.** One worker per angle, each an isolated agent with **only** web tools (`web_search`, `fetch_url`) - no shell, no filesystem. Each returns compressed, schema-validated findings with citations, never raw pages.
+- **Reflection pass.** After the fan-out, a cheap web-less reflector scores coverage against the plan goals, detects contradictions between angles, and lists gaps. Gaps trigger one bounded follow-up fan-out of new angles (hard-capped by `--max-iters`, budget-gated); unresolved conflicts are handed to the writer as an explicit "Open conflicts" section instead of being smoothed over.
 - **Factored verification (Chain-of-Verification).** Load-bearing claims are re-checked by fresh verifiers that see **only** the claim plus the fetched source excerpts - no web access, no draft - so they cannot inherit the researchers' hallucinations. Refuted claims are dropped.
 - **Single-writer report.** One writer synthesizes the surviving, verified findings into a coherent cited Markdown report (parallel section-writing is a known incoherence antipattern).
 - **Citation integrity.** Every URL the report cites is checked against the set of pages actually fetched; unverifiable citations are flagged in the report rather than silently trusted.
@@ -48,11 +49,12 @@ Everything else has sane defaults and can be set per-run via flags or globally v
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--depth quick\|standard\|deep` | `PI_RESEARCH_DEPTH` | `standard` | Angle count, turns, and claims to verify |
+| `--depth quick\|standard\|deep` | `PI_RESEARCH_DEPTH` | `standard` | Angle count, turns, claims to verify, and reflection passes |
 | `--workers N` | `PI_RESEARCH_WORKERS` | depth-based | Max parallel workers (capped at 4 concurrent) |
 | `--votes N` | `PI_RESEARCH_VOTES` | `2` | Verifiers per claim |
 | `--budget USD` | `PI_RESEARCH_BUDGET_USD` | `2.00` | Hard spend ceiling for the fan-out |
 | `--provider tavily\|exa\|brave` | `PI_RESEARCH_PROVIDER` | auto | Search provider |
+| `--max-iters N` | `PI_RESEARCH_MAX_ITERS` | depth-based (0/1/2) | Max reflection passes (coverage check → follow-up fan-out); `0` disables |
 | `--no-verify` | - | off | Skip the verification stage |
 | `--backend sdk\|subprocess` | `PI_RESEARCH_BACKEND` | `sdk` | Research-worker isolation (see below) |
 | `--turn-cap N` | `PI_RESEARCH_TURN_CAP` | unlimited | Soft per-worker turn budget (hard cap adds a small buffer) |

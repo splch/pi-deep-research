@@ -12,6 +12,8 @@ const STAGE_LABEL: Record<Stage, string> = {
   plan_confirmed: "plan confirmed",
   researching: "researching",
   research_done: "research done",
+  reflecting: "reflecting",
+  reflect_done: "reflected",
   verifying: "verifying",
   verify_done: "verified",
   writing: "writing report",

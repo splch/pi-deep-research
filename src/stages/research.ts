@@ -3,18 +3,12 @@ import type { BudgetTracker } from "../budget.js";
 import type { SearchProvider } from "../search/provider.js";
 import type { SourceStore } from "../sources.js";
 import type { HostLimiter } from "../tools/politeness.js";
-import type { Finding, ResearchPlan, WorkerFinding } from "../types.js";
+import type { AngleOutcome, Finding, ResearchPlan, WorkerFinding } from "../types.js";
+
+export type { AngleOutcome } from "../types.js";
 import type { ResearchBackend, WorkerProgress } from "../worker/interface.js";
 import { mapWithConcurrency } from "../worker/pool.js";
 import { buildResearchWorkerSpec } from "../worker/specs.js";
-
-export interface AngleOutcome {
-  angleId: string;
-  status: "ok" | "salvaged" | "capped" | "aborted" | "error" | "skipped";
-  findingCount: number;
-  notes?: string;
-  error?: string;
-}
 
 export interface ResearchStageResult {
   findings: Finding[];

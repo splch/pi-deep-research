@@ -7,6 +7,8 @@ export type Stage =
   | "plan_confirmed"
   | "researching"
   | "research_done"
+  | "reflecting"
+  | "reflect_done"
   | "verifying"
   | "verify_done"
   | "writing"
@@ -22,6 +24,8 @@ export const STAGE_ORDER: Stage[] = [
   "plan_confirmed",
   "researching",
   "research_done",
+  "reflecting",
+  "reflect_done",
   "verifying",
   "verify_done",
   "writing",
@@ -109,6 +113,15 @@ export interface Finding extends WorkerFinding {
   angleId: string;
 }
 
+/** Per-angle outcome of a research fan-out; the reflector's coverage signal. */
+export interface AngleOutcome {
+  angleId: string;
+  status: "ok" | "salvaged" | "capped" | "aborted" | "error" | "skipped";
+  findingCount: number;
+  notes?: string;
+  error?: string;
+}
+
 export const SubmitFindingsParams = Type.Object({
   findings: Type.Array(FindingSchema),
   notes: Type.Optional(
@@ -131,6 +144,27 @@ export const AngleSchema = Type.Object({
   seedQueries: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
   priority: Type.Number({ minimum: 1, maximum: 5, description: "1 = most important" }),
 });
+
+export const SubmitReflectionParams = Type.Object({
+  gaps: Type.Array(Type.String(), {
+    description: "Goals or sub-questions the findings do NOT adequately cover (empty if coverage is complete)",
+  }),
+  conflicts: Type.Array(Type.String(), {
+    description: "Contradictions between findings that remain unresolved",
+  }),
+  followUpAngles: Type.Array(AngleSchema, {
+    maxItems: 4,
+    description: "New angles that would close the gaps (empty when coverage is complete)",
+  }),
+});
+export type SubmitReflectionPayload = Static<typeof SubmitReflectionParams>;
+
+/** Reflection progress carried across --resume: iterations done plus accumulated open conflicts. */
+export interface ReflectionState {
+  iterations: number;
+  gaps: string[];
+  conflicts: string[];
+}
 
 export const SubmitPlanParams = Type.Object({
   refinedQuestion: Type.String({ description: "The question restated precisely and answerably" }),
@@ -226,6 +260,9 @@ export interface RunState {
   sourcesPath?: string;
   claims?: Claim[];
   verdicts?: Verdict[];
+  /** Per-angle outcomes from all research fan-outs; feeds the reflector after a resume. */
+  outcomes?: AngleOutcome[];
+  reflection?: ReflectionState;
   reportPath?: string;
   meta?: ReportMeta;
   budget: BudgetState;

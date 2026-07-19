@@ -5,9 +5,11 @@ import type { SourceStore } from "../sources.js";
 import {
   SubmitFindingsParams,
   SubmitPlanParams,
+  SubmitReflectionParams,
   SubmitVerdictParams,
   type SubmitFindingsPayload,
   type SubmitPlanPayload,
+  type SubmitReflectionPayload,
   type SubmitVerdictPayload,
 } from "../types.js";
 
@@ -71,6 +73,29 @@ export function createSubmitPlanTool(sink: Deferred<SubmitPlanPayload>) {
       if (!sink.settled) sink.resolve(params);
       return {
         content: [{ type: "text", text: `Recorded plan with ${params.angles.length} angle(s).` }],
+        details: params,
+        terminate: true,
+      };
+    },
+  });
+}
+
+export function createSubmitReflectionTool(sink: Deferred<SubmitReflectionPayload>) {
+  return defineTool({
+    name: "submit_reflection",
+    label: "Submit reflection",
+    description:
+      "Call ONCE with your coverage assessment: gaps, unresolved conflicts, and the follow-up angles (if any) needed to close them. This ends the reflection step.",
+    parameters: SubmitReflectionParams,
+    async execute(_toolCallId, params): Promise<AgentToolResult<SubmitReflectionPayload>> {
+      if (!sink.settled) sink.resolve(params);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Recorded reflection: ${params.gaps.length} gap(s), ${params.conflicts.length} conflict(s), ${params.followUpAngles.length} follow-up angle(s).`,
+          },
+        ],
         details: params,
         terminate: true,
       };
